@@ -42,7 +42,8 @@ just a dynamic loader + a tiny model.
 server-shaped task offer → consent UI → local model inference →
 result envelope. No real server yet — `graph.json` is static.
 
-See [SPEC.md](SPEC.md) for the protocol draft, and
+See [SPEC.md](SPEC.md) for the protocol draft,
+[PLAN.md](PLAN.md) for the milestone-by-milestone roadmap, and
 [examples/sentiment-poc/](examples/sentiment-poc/) for the demo.
 
 ## Quickstart
