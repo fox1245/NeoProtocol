@@ -48,16 +48,41 @@ See [SPEC.md](SPEC.md) for the protocol draft,
 
 ## Quickstart
 
+### Static mode (no server)
+
 ```bash
 cd examples/sentiment-poc
 python3 -m http.server 8000
 # open http://localhost:8000 in a Chrome/Edge/Safari tab
 ```
 
-The page fetches `graph.json` (the simulated task offer), shows a
-consent dialog, and on agree downloads ~17 MB DistilBERT-SST2 via
-transformers.js, runs sentiment classification on 12 sample reviews
-locally, and prints the result envelope that would post back.
+The page fetches `graph.json` (a hardcoded Task Offer), shows a
+consent dialog with three runtime choices (local ONNX / BYOK OpenAI
+key / browser built-in AI), runs the leaves, and prints the result
+envelope that would post back.
+
+### Server mode (real round-trip)
+
+```bash
+# terminal 1 — Originator
+cd server
+npm install && npm start            # listens on :3001
+
+# terminal 2 — static page
+cd examples/sentiment-poc
+python3 -m http.server 8000
+
+# browser
+http://localhost:8000/index.html?server=http://localhost:3001
+```
+
+The page now starts with a prompt textarea, POSTs to `/tasks`, the
+stub decomposer matches the prompt to a fixture, the offer comes
+back, you pick a runtime, the leaves run locally, the envelope POSTs
+to `/tasks/:id/results`, and the server's ack appears in the page.
+Server log records the round-trip. Server-side ajv schema validation
++ data_locality whitelist enforcement (defense in depth) along the
+way.
 
 ### Known v0 limitations
 

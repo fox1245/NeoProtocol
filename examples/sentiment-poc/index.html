@@ -97,7 +97,19 @@
 <p class="lead">Originator (server) ships a Task Offer. You (Executor) decide which runtime to use. Three options ship in v0.1: local ONNX, your own API key (BYOK), or the browser's built-in model where available.</p>
 
 <div id="stage-loading" class="card">
-  <span class="status">Fetching task offer from <code>graph.json</code>…</span>
+  <span class="status" id="loading-status">Fetching task offer from <code>graph.json</code>…</span>
+</div>
+
+<div id="stage-prompt" class="hidden">
+  <h2>Submit a prompt</h2>
+  <div class="card">
+    <p class="status" style="margin-top:0" id="server-mode-banner"></p>
+    <textarea id="server-prompt" rows="3" style="width:100%;padding:10px;font-family:inherit;font-size:14px;border:1px solid var(--border);border-radius:4px;resize:vertical" placeholder="e.g. analyze sentiment of these reviews"></textarea>
+    <div class="actions">
+      <button class="primary" id="btn-submit-prompt">Submit to server</button>
+    </div>
+    <div class="status" id="server-prompt-status" style="margin-top:8px"></div>
+  </div>
 </div>
 
 <div id="stage-offer" class="hidden">
@@ -143,6 +155,7 @@
   <div class="card">
     <p class="status" style="margin-top:0">Only fields whitelisted by <code>data_locality.returns_to_originator</code> in the offer.</p>
     <pre id="envelope-json"></pre>
+    <div class="status" id="server-ack-status" style="margin-top:8px"></div>
   </div>
 </div>
 
@@ -192,6 +205,14 @@ const $ = (id) => document.getElementById(id);
 const show = (id) => $(id).classList.remove("hidden");
 const hide = (id) => $(id).classList.add("hidden");
 
+// Server mode: enabled when the page is loaded with ?server=<base-url>.
+// In server mode we POST a prompt → /tasks, GET the data referenced by
+// the offer, and POST the result envelope to /tasks/:id/results.
+// Without ?server=, the page falls back to the static graph.json + console-only
+// envelope behavior we shipped in v0.
+const SERVER_URL = new URLSearchParams(location.search).get("server");
+const SERVER_MODE = !!SERVER_URL;
+
 let offer = null;
 let reviews = null;
 
@@ -199,13 +220,59 @@ let reviews = null;
 // Offer loading + UI rendering
 // =========================================================================
 
-async function loadOffer() {
+async function init() {
+  if (SERVER_MODE) {
+    $("server-mode-banner").innerHTML =
+      `Server mode — Originator: <code>${escapeHtml(SERVER_URL)}</code>`;
+    hide("stage-loading");
+    show("stage-prompt");
+    await checkBuiltinAvailability();
+  } else {
+    await loadStaticOffer();
+  }
+}
+
+async function loadStaticOffer() {
   offer = await fetch("graph.json").then(r => r.json());
   reviews = await fetch(offer.input_data_ref).then(r => r.json());
   renderOffer();
   hide("stage-loading");
   show("stage-offer");
   await checkBuiltinAvailability();
+}
+
+async function submitPrompt() {
+  const prompt = $("server-prompt").value.trim();
+  if (!prompt) {
+    $("server-prompt-status").textContent = "Type a prompt first.";
+    return;
+  }
+  $("server-prompt-status").textContent = "POSTing to /tasks…";
+  $("btn-submit-prompt").disabled = true;
+  try {
+    const r = await fetch(`${SERVER_URL}/tasks`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt })
+    });
+    if (!r.ok) {
+      const errText = await r.text();
+      $("server-prompt-status").innerHTML =
+        `<span style="color:var(--danger)">Server ${r.status}: ${escapeHtml(errText.slice(0, 300))}</span>`;
+      $("btn-submit-prompt").disabled = false;
+      return;
+    }
+    offer = await r.json();
+    // input_data_ref from the server is /tasks/:id/data — fetch it from the same server.
+    reviews = await fetch(`${SERVER_URL}${offer.input_data_ref}`).then(r => r.json());
+    renderOffer();
+    hide("stage-prompt");
+    show("stage-offer");
+  } catch (e) {
+    $("server-prompt-status").innerHTML =
+      `<span style="color:var(--danger)">Network error: ${escapeHtml(e.message)}</span>`;
+    $("btn-submit-prompt").disabled = false;
+  }
 }
 
 function renderOffer() {
@@ -471,7 +538,36 @@ function buildAndShowEnvelope(result) {
   }).join("");
 
   $("envelope-json").textContent = JSON.stringify(envelope, null, 2);
-  console.log("[NeoProtocol] Result envelope (would POST to originator):", envelope);
+  console.log("[NeoProtocol] Result envelope:", envelope);
+
+  if (SERVER_MODE) {
+    postEnvelopeToServer(envelope);
+  } else {
+    $("server-ack-status").textContent = "Static mode — envelope only logged to console.";
+  }
+}
+
+async function postEnvelopeToServer(envelope) {
+  $("server-ack-status").textContent = "POSTing envelope to server…";
+  try {
+    const r = await fetch(`${SERVER_URL}/tasks/${offer.task.id}/results`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(envelope)
+    });
+    const text = await r.text();
+    if (!r.ok) {
+      $("server-ack-status").innerHTML =
+        `<span style="color:var(--danger)">Server ${r.status}: ${escapeHtml(text.slice(0, 300))}</span>`;
+      return;
+    }
+    const ack = JSON.parse(text);
+    $("server-ack-status").innerHTML =
+      `Server ack: <code>${escapeHtml(JSON.stringify(ack))}</code>`;
+  } catch (e) {
+    $("server-ack-status").innerHTML =
+      `<span style="color:var(--danger)">Network error: ${escapeHtml(e.message)}</span>`;
+  }
 }
 
 // =========================================================================
@@ -540,9 +636,10 @@ $("btn-decline").addEventListener("click", onDecline);
 $("btn-retry").addEventListener("click", onRetry);
 $("byok-cancel").addEventListener("click", closeByokModal);
 $("byok-confirm").addEventListener("click", confirmByok);
+$("btn-submit-prompt").addEventListener("click", submitPrompt);
 
-loadOffer().catch(err => {
-  $("stage-loading").innerHTML = `<span class="status" style="color:var(--danger)">Failed to load offer: ${err.message}</span>`;
+init().catch(err => {
+  $("stage-loading").innerHTML = `<span class="status" style="color:var(--danger)">Init failed: ${err.message}</span>`;
 });
 </script>
 

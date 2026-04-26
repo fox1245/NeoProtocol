@@ -1,7 +1,22 @@
 # NeoProtocol Improvement Plan
 
 > Living document. Update as milestones land or assumptions shift.
-> Last updated: 2026-04-26 (v0 PoC verified end-to-end via Playwright).
+> Last updated: 2026-04-26 (v0 + v0.1 + v0.2 + browser↔server wiring all
+> shipped and verified via Playwright + smoke tests).
+
+## Status snapshot
+
+| Milestone | State    | Commits |
+|-----------|----------|---------|
+| v0        | ✅ done  | `26dd8e8`, `8248bef` |
+| v0.1 BYOK + Built-in | ✅ done | `7a6d201` |
+| v0.2 server skeleton | ✅ done | `083276e` |
+| browser↔server end-to-end | ✅ done | (this commit) |
+| v0.2-B real LLM decomposer | ⏳ next | — |
+| v0.3 capability negotiation | ⏳ | — |
+| v0.5 Chrome Built-in AI verified live | ⏳ (code shipped, needs flag-enabled Chrome to demo) | — |
+| v1 streaming + multi-node | ⏳ | — |
+| Tier 2 Chromium fork | ⏸ deferred | — |
 
 ## What's true today (v0)
 
