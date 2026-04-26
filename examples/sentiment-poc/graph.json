@@ -1,0 +1,40 @@
+{
+  "protocol_version": "neoprotocol/0",
+  "task": {
+    "id": "demo-001-sentiment-batch",
+    "type": "sentiment_batch",
+    "human_description": "Analyze the sentiment of 12 customer reviews and report distribution + per-review labels."
+  },
+  "graph": {
+    "nodes": [
+      {
+        "id": "classify",
+        "kind": "leaf",
+        "runtime": "client",
+        "fallback_runtime": "server",
+        "leaf_spec": {
+          "task": "sentiment-analysis",
+          "model_options": [
+            {
+              "model_id": "Xenova/distilbert-base-uncased-finetuned-sst-2-english",
+              "size_mb": 17,
+              "quantized": true,
+              "device_pref": ["webgpu", "wasm"]
+            }
+          ]
+        }
+      }
+    ],
+    "edges": []
+  },
+  "input_data_ref": "reviews.json",
+  "data_locality": {
+    "raw_input_visibility": "client_only",
+    "returns_to_originator": ["sentiment_distribution", "per_item_labels"]
+  },
+  "fallback_estimate": {
+    "if_declined_originator_will": "Run via OpenAI gpt-4o-mini",
+    "estimated_cost_usd": 0.0048,
+    "estimated_latency_ms": 8000
+  }
+}
