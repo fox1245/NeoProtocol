@@ -8,11 +8,12 @@
 .DS_Store
 Thumbs.db
 
-# Node (server impl, not used yet)
+# Node
 node_modules/
-package-lock.json
 yarn.lock
 pnpm-lock.yaml
+# Lockfile policy: keep server/package-lock.json so deps are reproducible.
+# (Earlier .gitignore had it blanket-excluded; revisited at v0.2 — see commit history.)
 
 # Python (server impl, not used yet)
 __pycache__/

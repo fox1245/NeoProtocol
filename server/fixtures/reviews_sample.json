@@ -1,0 +1,16 @@
+{
+  "items": [
+    { "id": "r1",  "text": "This product completely changed my workflow. Five stars, would buy again." },
+    { "id": "r2",  "text": "Arrived broken. Customer service ghosted me for two weeks." },
+    { "id": "r3",  "text": "Decent for the price. Nothing special but does the job." },
+    { "id": "r4",  "text": "Battery life is incredible — lasts three full days on a single charge." },
+    { "id": "r5",  "text": "Honestly the worst purchase I've made this year. Save your money." },
+    { "id": "r6",  "text": "Setup was a nightmare but once running it works flawlessly." },
+    { "id": "r7",  "text": "Beautiful design, sturdy build, and the colors are exactly as pictured." },
+    { "id": "r8",  "text": "Smelled strongly of chemicals out of the box. Returning it." },
+    { "id": "r9",  "text": "Way better than the previous version. Highly recommended." },
+    { "id": "r10", "text": "Stopped working after a week. Cheap parts inside." },
+    { "id": "r11", "text": "It's fine. Probably wouldn't buy again but I don't regret it." },
+    { "id": "r12", "text": "Absolutely love it — already ordered two more for friends." }
+  ]
+}

@@ -1,0 +1,56 @@
+{
+  "protocol_version": "neoprotocol/0",
+  "task": {
+    "id": "FIXTURE_TASK_ID",
+    "type": "sentiment_batch",
+    "human_description": "Analyze the sentiment of customer reviews and report distribution + per-review labels."
+  },
+  "graph": {
+    "nodes": [
+      {
+        "id": "classify",
+        "kind": "leaf",
+        "runtime": "client",
+        "fallback_runtime": "server",
+        "leaf_spec": {
+          "task": "sentiment-analysis",
+          "model_options": [
+            {
+              "runtime_kind": "local_onnx",
+              "model_id": "Xenova/distilbert-base-uncased-finetuned-sst-2-english",
+              "size_mb": 17,
+              "quantized": true,
+              "device_pref": ["webgpu", "wasm"]
+            },
+            {
+              "runtime_kind": "byok_api",
+              "byok_provider": "openai",
+              "model_id": "openai/gpt-4o-mini",
+              "endpoint": "https://api.openai.com/v1/chat/completions",
+              "prompt_template": "Classify the sentiment of the following review as POSITIVE or NEGATIVE. Reply with only one word.\n\nReview: {text}\n\nSentiment:",
+              "estimated_cost_usd_per_item": 0.00004
+            },
+            {
+              "runtime_kind": "browser_builtin",
+              "model_id": "chrome/gemini-nano",
+              "prompt_template": "Reply with only one word, either POSITIVE or NEGATIVE, to classify the sentiment of this review:\n\n{text}",
+              "size_mb": 0,
+              "note": "Pre-installed by browser; no extra download."
+            }
+          ]
+        }
+      }
+    ],
+    "edges": []
+  },
+  "input_data_ref": "FIXTURE_DATA_REF",
+  "data_locality": {
+    "raw_input_visibility": "client_only",
+    "returns_to_originator": ["sentiment_distribution", "per_item_labels"]
+  },
+  "fallback_estimate": {
+    "if_declined_originator_will": "Run via OpenAI gpt-4o-mini",
+    "estimated_cost_usd": 0.0048,
+    "estimated_latency_ms": 8000
+  }
+}

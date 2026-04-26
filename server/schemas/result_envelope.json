@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/fox1245/NeoProtocol/schemas/result_envelope.json",
+  "title": "NeoProtocol Result Envelope",
+  "type": "object",
+  "required": ["protocol_version", "task_id", "status"],
+  "additionalProperties": true,
+  "properties": {
+    "protocol_version": {
+      "type": "string",
+      "pattern": "^neoprotocol/[0-9]+$"
+    },
+    "task_id": { "type": "string", "minLength": 1 },
+    "status":  { "enum": ["completed", "declined", "failed"] },
+    "reason":  { "type": "string" },
+    "execution": {
+      "type": "object",
+      "properties": {
+        "runtime":           { "enum": ["client", "server", "byok"] },
+        "runtime_kind":      { "type": "string" },
+        "model_used":        { "type": "string" },
+        "device":            { "type": "string" },
+        "model_load_ms":     { "type": "number", "minimum": 0 },
+        "inference_ms_total":{ "type": "number", "minimum": 0 },
+        "items_processed":   { "type": "integer", "minimum": 0 }
+      }
+    },
+    "results": { "type": "object" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "completed" } }, "required": ["status"] },
+      "then": { "required": ["execution", "results"] }
+    },
+    {
+      "if": { "properties": { "status": { "const": "declined" } }, "required": ["status"] },
+      "then": { "required": ["reason"] }
+    }
+  ]
+}

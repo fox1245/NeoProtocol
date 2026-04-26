@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/fox1245/NeoProtocol/schemas/task_offer.json",
+  "title": "NeoProtocol Task Offer",
+  "type": "object",
+  "required": ["protocol_version", "task", "graph", "data_locality"],
+  "additionalProperties": true,
+  "properties": {
+    "protocol_version": {
+      "type": "string",
+      "pattern": "^neoprotocol/[0-9]+$"
+    },
+    "task": {
+      "type": "object",
+      "required": ["id", "type", "human_description"],
+      "properties": {
+        "id":                { "type": "string", "minLength": 1 },
+        "type":              { "type": "string", "minLength": 1 },
+        "human_description": { "type": "string", "minLength": 1 }
+      }
+    },
+    "graph": {
+      "type": "object",
+      "required": ["nodes"],
+      "properties": {
+        "nodes": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/node" }
+        },
+        "edges": { "type": "array" }
+      }
+    },
+    "input_data_ref": { "type": "string" },
+    "data_locality": {
+      "type": "object",
+      "required": ["raw_input_visibility", "returns_to_originator"],
+      "properties": {
+        "raw_input_visibility":   { "enum": ["client_only", "shared"] },
+        "returns_to_originator":  {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "fallback_estimate": {
+      "type": "object",
+      "properties": {
+        "if_declined_originator_will": { "type": "string" },
+        "estimated_cost_usd":          { "type": "number", "minimum": 0 },
+        "estimated_latency_ms":        { "type": "number", "minimum": 0 }
+      }
+    }
+  },
+  "$defs": {
+    "node": {
+      "type": "object",
+      "required": ["id", "kind", "runtime"],
+      "properties": {
+        "id":               { "type": "string", "minLength": 1 },
+        "kind":             { "enum": ["leaf", "reducer"] },
+        "runtime":          { "enum": ["client", "server"] },
+        "fallback_runtime": { "enum": ["client", "server"] },
+        "leaf_spec": {
+          "type": "object",
+          "required": ["task", "model_options"],
+          "properties": {
+            "task": { "type": "string", "minLength": 1 },
+            "model_options": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "$ref": "#/$defs/model_option" }
+            }
+          }
+        }
+      }
+    },
+    "model_option": {
+      "type": "object",
+      "required": ["runtime_kind", "model_id"],
+      "properties": {
+        "runtime_kind":    { "enum": ["local_onnx", "byok_api", "browser_builtin"] },
+        "model_id":        { "type": "string", "minLength": 1 },
+        "size_mb":         { "type": "number", "minimum": 0 },
+        "quantized":       { "type": "boolean" },
+        "device_pref":     {
+          "type": "array",
+          "items": { "enum": ["wasm", "webgpu", "webnn", "auto"] }
+        },
+        "byok_provider":   { "type": "string" },
+        "endpoint":        { "type": "string", "format": "uri" },
+        "prompt_template": { "type": "string" },
+        "estimated_cost_usd_per_item": { "type": "number", "minimum": 0 },
+        "note":            { "type": "string" }
+      }
+    }
+  }
+}
