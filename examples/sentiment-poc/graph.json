@@ -16,10 +16,26 @@
           "task": "sentiment-analysis",
           "model_options": [
             {
+              "runtime_kind": "local_onnx",
               "model_id": "Xenova/distilbert-base-uncased-finetuned-sst-2-english",
               "size_mb": 17,
               "quantized": true,
               "device_pref": ["webgpu", "wasm"]
+            },
+            {
+              "runtime_kind": "byok_api",
+              "byok_provider": "openai",
+              "model_id": "openai/gpt-4o-mini",
+              "endpoint": "https://api.openai.com/v1/chat/completions",
+              "prompt_template": "Classify the sentiment of the following review as POSITIVE or NEGATIVE. Reply with only one word.\n\nReview: {text}\n\nSentiment:",
+              "estimated_cost_usd_per_item": 0.00004
+            },
+            {
+              "runtime_kind": "browser_builtin",
+              "model_id": "chrome/gemini-nano",
+              "prompt_template": "Reply with only one word, either POSITIVE or NEGATIVE, to classify the sentiment of this review:\n\n{text}",
+              "size_mb": 0,
+              "note": "Pre-installed by browser; no extra download."
             }
           ]
         }

@@ -30,11 +30,17 @@
     background: white; border: 1px solid var(--border);
     border-radius: 8px; padding: 18px 20px; margin: 12px 0;
   }
-  .offer-row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 14px; border-bottom: 1px dashed var(--border); }
+  .offer-row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 14px; border-bottom: 1px dashed var(--border); gap: 12px; }
   .offer-row:last-child { border-bottom: 0; }
-  .offer-row .k { color: var(--muted); }
-  .offer-row .v { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
-  .actions { display: flex; gap: 8px; margin-top: 16px; }
+  .offer-row .k { color: var(--muted); flex-shrink: 0; }
+  .offer-row .v { font-family: ui-monospace, "SF Mono", Menlo, monospace; text-align: right; }
+  .options-list { margin-top: 10px; }
+  .option-row { padding: 10px 12px; margin: 6px 0; border-radius: 4px; background: var(--code-bg); font-size: 13px; }
+  .option-row .kind { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; margin-right: 8px; }
+  .kind.local_onnx { background: #e3f2fd; color: #1565c0; }
+  .kind.byok_api { background: #fff3e0; color: #e65100; }
+  .kind.browser_builtin { background: #e8f5e9; color: #2e7d32; }
+  .actions { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
   button {
     border: 0; border-radius: 6px; padding: 10px 16px;
     font-size: 14px; font-weight: 500; cursor: pointer;
@@ -44,6 +50,8 @@
   button.primary:hover { background: var(--accent-hover); }
   button.secondary { background: #e8e8e8; color: var(--fg); }
   button.secondary:hover { background: #d8d8d8; }
+  button.danger { background: #f5e0e0; color: var(--danger); }
+  button.danger:hover { background: #ecc7c7; }
   button:disabled { opacity: 0.5; cursor: not-allowed; }
   .status { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; color: var(--muted); }
   .progress { height: 6px; background: var(--code-bg); border-radius: 3px; overflow: hidden; margin: 8px 0; }
@@ -58,18 +66,35 @@
     overflow-x: auto; font-size: 12px; line-height: 1.45;
     border: 1px solid var(--border);
   }
-  .hidden { display: none; }
+  .hidden { display: none !important; }
   .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
   .badge.client { background: #e3f2fd; color: #1565c0; }
   .badge.server { background: #fce4ec; color: #ad1457; }
   .footer { margin-top: 40px; color: var(--muted); font-size: 12px; }
   .footer a { color: var(--muted); }
+  /* BYOK modal */
+  .modal-backdrop {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.4);
+    display: flex; align-items: center; justify-content: center; z-index: 1000;
+  }
+  .modal {
+    background: white; border-radius: 8px; padding: 24px;
+    max-width: 480px; width: calc(100% - 32px); box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+  }
+  .modal h3 { margin: 0 0 8px; font-size: 16px; }
+  .modal p { margin: 4px 0 12px; font-size: 13px; color: var(--muted); }
+  .modal input[type="password"] {
+    width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 4px;
+    font-family: ui-monospace, monospace; font-size: 13px;
+  }
+  .modal .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+  .key-status { font-size: 12px; color: var(--danger); margin-top: 6px; min-height: 14px; }
 </style>
 </head>
 <body>
 
 <h1>NeoProtocol PoC — Sentiment Batch</h1>
-<p class="lead">Originator (server) ships a Task Offer. You (Executor) decide. If you agree, a tiny model runs locally and the Originator only sees aggregate results.</p>
+<p class="lead">Originator (server) ships a Task Offer. You (Executor) decide which runtime to use. Three options ship in v0.1: local ONNX, your own API key (BYOK), or the browser's built-in model where available.</p>
 
 <div id="stage-loading" class="card">
   <span class="status">Fetching task offer from <code>graph.json</code>…</span>
@@ -78,22 +103,32 @@
 <div id="stage-offer" class="hidden">
   <h2>Task offer received</h2>
   <div class="card" id="offer-card"></div>
-  <div class="actions">
-    <button class="primary" id="btn-agree">Agree — run locally</button>
-    <button class="secondary" id="btn-decline">Decline — let server run it</button>
+
+  <h2>Model options</h2>
+  <div class="card">
+    <div class="status" style="margin-bottom:6px">Originator listed these. You pick one (or decline).</div>
+    <div class="options-list" id="options-list"></div>
   </div>
+
+  <div class="actions">
+    <button class="primary" id="btn-agree">Run locally (ONNX)</button>
+    <button class="secondary" id="btn-byok">Use my OpenAI key</button>
+    <button class="secondary" id="btn-builtin" disabled>Use browser built-in AI</button>
+    <button class="danger" id="btn-decline">Decline</button>
+  </div>
+  <div class="status" id="builtin-status" style="margin-top:6px"></div>
 </div>
 
 <div id="stage-loading-model" class="hidden">
   <h2>Loading model</h2>
   <div class="card">
-    <div class="status" id="model-status">Initializing transformers.js…</div>
+    <div class="status" id="model-status">Initializing…</div>
     <div class="progress"><div id="model-progress" style="width:0%"></div></div>
   </div>
 </div>
 
 <div id="stage-running" class="hidden">
-  <h2>Running leaves locally</h2>
+  <h2 id="running-heading">Running leaves locally</h2>
   <div class="card">
     <div class="status" id="run-status">Classifying…</div>
     <div class="progress"><div id="run-progress" style="width:0%"></div></div>
@@ -121,14 +156,35 @@
   </div>
 </div>
 
+<div id="stage-error" class="hidden">
+  <h2>Run failed</h2>
+  <div class="card">
+    <pre id="error-detail" style="color:var(--danger)"></pre>
+    <button class="secondary" id="btn-retry">Back to offer</button>
+  </div>
+</div>
+
+<!-- BYOK key entry modal -->
+<div id="byok-modal" class="hidden modal-backdrop">
+  <div class="modal">
+    <h3>OpenAI API key</h3>
+    <p>Stored only in this browser session (sessionStorage). Never sent to the originator. Used to call <code>api.openai.com</code> directly from this tab.</p>
+    <input type="password" id="byok-key" placeholder="sk-..." autocomplete="off">
+    <div class="key-status" id="byok-key-status"></div>
+    <div class="modal-actions">
+      <button class="secondary" id="byok-cancel">Cancel</button>
+      <button class="primary" id="byok-confirm">Confirm and run</button>
+    </div>
+  </div>
+</div>
+
 <div class="footer">
-  <p>NeoProtocol v0 — <a href="../../SPEC.md">SPEC</a> · <a href="../../README.md">README</a></p>
+  <p>NeoProtocol v0.1 — <a href="../../SPEC.md">SPEC</a> · <a href="../../PLAN.md">PLAN</a> · <a href="../../README.md">README</a></p>
 </div>
 
 <script type="module">
 import { pipeline, env } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.2";
 
-// Allow remote model downloads (default in transformers.js v3, but explicit here).
 env.allowRemoteModels = true;
 env.allowLocalModels = false;
 
@@ -139,24 +195,25 @@ const hide = (id) => $(id).classList.add("hidden");
 let offer = null;
 let reviews = null;
 
+// =========================================================================
+// Offer loading + UI rendering
+// =========================================================================
+
 async function loadOffer() {
   offer = await fetch("graph.json").then(r => r.json());
   reviews = await fetch(offer.input_data_ref).then(r => r.json());
   renderOffer();
   hide("stage-loading");
   show("stage-offer");
+  await checkBuiltinAvailability();
 }
 
 function renderOffer() {
   const node = offer.graph.nodes[0];
-  const model = node.leaf_spec.model_options[0];
   const rows = [
     ["Task",          offer.task.human_description],
     ["Items",         `${reviews.items.length} reviews`],
     ["Leaf node",     `<code>${node.id}</code> <span class="badge client">${node.runtime}</span>`],
-    ["Model",         `<code>${model.model_id}</code>`],
-    ["Model size",    `${model.size_mb} MB${model.quantized ? " (quantized)" : ""}`],
-    ["Device prefs",  model.device_pref.join(" → ")],
     ["Raw data",      offer.data_locality.raw_input_visibility === "client_only"
                         ? "stays on this device"
                         : "shared with server"],
@@ -166,41 +223,81 @@ function renderOffer() {
   $("offer-card").innerHTML = rows.map(([k, v]) =>
     `<div class="offer-row"><span class="k">${k}</span><span class="v">${v}</span></div>`
   ).join("");
+
+  $("options-list").innerHTML = node.leaf_spec.model_options.map((m, i) => {
+    const tag = `<span class="kind ${m.runtime_kind}">${m.runtime_kind}</span>`;
+    let detail = `<code>${m.model_id}</code>`;
+    if (m.size_mb !== undefined) detail += ` · ${m.size_mb} MB${m.quantized ? " (q8)" : ""}`;
+    if (m.estimated_cost_usd_per_item !== undefined) detail += ` · ~$${m.estimated_cost_usd_per_item}/item`;
+    if (m.note) detail += ` · ${escapeHtml(m.note)}`;
+    return `<div class="option-row">${tag}${detail}</div>`;
+  }).join("");
 }
 
-async function onAgree() {
-  hide("stage-offer");
+function findOption(runtime_kind) {
+  return offer.graph.nodes[0].leaf_spec.model_options.find(m => m.runtime_kind === runtime_kind);
+}
+
+// =========================================================================
+// Built-in AI feature detection
+// =========================================================================
+
+async function isBuiltinAvailable() {
+  // Chrome 127+ exposes window.LanguageModel; some versions go through
+  // window.ai.languageModel. Probe both.
+  const lm = window.LanguageModel
+    || (typeof window.ai !== "undefined" && window.ai.languageModel);
+  if (!lm) return { ok: false, reason: "no API surface" };
+  try {
+    const a = lm.availability ? await lm.availability() : null;
+    if (a === "unavailable" || a === "no") return { ok: false, reason: `availability=${a}` };
+    return { ok: true, lm, availability: a || "unknown" };
+  } catch (e) {
+    return { ok: false, reason: e.message };
+  }
+}
+
+async function checkBuiltinAvailability() {
+  const r = await isBuiltinAvailable();
+  if (r.ok) {
+    $("btn-builtin").disabled = false;
+    $("builtin-status").textContent = `Browser built-in AI: available (${r.availability}).`;
+    window._neoBuiltin = r.lm;
+  } else {
+    $("btn-builtin").disabled = true;
+    $("builtin-status").textContent = `Browser built-in AI: unavailable — ${r.reason}.`;
+  }
+}
+
+// =========================================================================
+// Executors — one per runtime_kind
+// All return: { perItemLabels, modelLoadMs, inferenceMsTotal, modelUsed, device, runtime, runtimeKind }
+// =========================================================================
+
+function pickDeviceDtype(spec) {
+  // q8 is sound only on the WASM EP; webgpu needs fp16/fp32.
+  // (Verified empirically — see feedback_transformers_js_q8_webgpu.)
+  const prefs = spec.device_pref || ["wasm"];
+  for (const p of prefs) {
+    if (p === "wasm") return { device: "wasm", dtype: spec.quantized ? "q8" : "fp32" };
+    if (p === "webgpu" && !spec.quantized) return { device: "webgpu", dtype: "fp16" };
+  }
+  return { device: "wasm", dtype: "q8" };
+}
+
+async function runLocalOnnx(modelSpec, items) {
+  $("running-heading").textContent = "Running leaves locally (ONNX)";
   show("stage-loading-model");
 
-  const node = offer.graph.nodes[0];
-  const modelSpec = node.leaf_spec.model_options[0];
-  const tLoad0 = performance.now();
-
-  // Pick a (device, dtype) combo that's actually known to produce
-  // correct outputs in transformers.js v3 browser. The q8 quantization
-  // path is only sound on the WASM/CPU execution provider; the WebGPU
-  // provider expects fp16/fp32 and silently produces garbage if asked
-  // for q8. We honor device_pref order but skip combos that aren't
-  // safe — WebGPU + non-quantized only.
-  function pickDeviceDtype(spec) {
-    const prefs = spec.device_pref || ["wasm"];
-    for (const p of prefs) {
-      if (p === "wasm") return { device: "wasm", dtype: spec.quantized ? "q8" : "fp32" };
-      if (p === "webgpu" && !spec.quantized) return { device: "webgpu", dtype: "fp16" };
-      // webgpu + quantized=true → unsafe in v3, fall through
-    }
-    return { device: "wasm", dtype: "q8" };
-  }
-
   const { device, dtype } = pickDeviceDtype(modelSpec);
-  $("model-status").textContent = `Selected device=${device}, dtype=${dtype} (from prefs ${modelSpec.device_pref.join(",")}).`;
+  $("model-status").textContent = `Selected device=${device}, dtype=${dtype}.`;
 
+  const tLoad0 = performance.now();
   const classifier = await pipeline(
-    node.leaf_spec.task,
+    offer.graph.nodes[0].leaf_spec.task,
     modelSpec.model_id,
     {
-      dtype,
-      device,
+      dtype, device,
       progress_callback: (p) => {
         if (p.status === "progress" && p.total) {
           const pct = Math.round((p.loaded / p.total) * 100);
@@ -208,8 +305,6 @@ async function onAgree() {
           $("model-status").textContent = `${p.file}: ${pct}% (${(p.loaded/1024/1024).toFixed(1)}/${(p.total/1024/1024).toFixed(1)} MB)`;
         } else if (p.status === "ready") {
           $("model-status").textContent = `Model ready (${device}/${dtype}).`;
-        } else if (p.status) {
-          $("model-status").textContent = `${p.status}: ${p.file || ""}`;
         }
       }
     }
@@ -218,19 +313,125 @@ async function onAgree() {
 
   hide("stage-loading-model");
   show("stage-running");
-  $("run-status").textContent = `Classifying ${reviews.items.length} reviews on ${device}…`;
+  $("run-status").textContent = `Classifying ${items.length} reviews on ${device}…`;
 
   const perItemLabels = [];
   const tInf0 = performance.now();
-  for (let i = 0; i < reviews.items.length; i++) {
-    const item = reviews.items[i];
-    const out = await classifier(item.text);
-    perItemLabels.push({ id: item.id, label: out[0].label, score: +out[0].score.toFixed(4) });
-    $("run-progress").style.width = `${Math.round(((i+1)/reviews.items.length)*100)}%`;
+  for (let i = 0; i < items.length; i++) {
+    const out = await classifier(items[i].text);
+    perItemLabels.push({ id: items[i].id, label: out[0].label, score: +out[0].score.toFixed(4) });
+    $("run-progress").style.width = `${Math.round(((i+1)/items.length)*100)}%`;
   }
   const inferenceMsTotal = Math.round(performance.now() - tInf0);
 
-  const distribution = perItemLabels.reduce((acc, r) => {
+  return {
+    perItemLabels, modelLoadMs, inferenceMsTotal,
+    modelUsed: modelSpec.model_id, device, runtime: "client", runtimeKind: "local_onnx"
+  };
+}
+
+async function runByokOpenAI(modelSpec, items, apiKey) {
+  $("running-heading").textContent = "Running leaves via your OpenAI key (BYOK)";
+  show("stage-running");
+  $("run-status").textContent = `Calling ${modelSpec.model_id} for ${items.length} reviews…`;
+
+  const tInf0 = performance.now();
+  const apiModel = modelSpec.model_id.replace(/^openai\//, "");
+  const perItemLabels = [];
+  for (let i = 0; i < items.length; i++) {
+    const prompt = modelSpec.prompt_template.replace("{text}", items[i].text);
+    const resp = await fetch(modelSpec.endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: apiModel,
+        messages: [{ role: "user", content: prompt }],
+        max_tokens: 5,
+        temperature: 0
+      })
+    });
+    if (!resp.ok) {
+      const errText = await resp.text();
+      throw new Error(`OpenAI ${resp.status}: ${errText.slice(0, 200)}`);
+    }
+    const data = await resp.json();
+    const text = (data.choices[0].message.content || "").trim().toUpperCase();
+    const label = text.startsWith("POS") ? "POSITIVE" : "NEGATIVE";
+    perItemLabels.push({ id: items[i].id, label, score: 1.0 });
+    $("run-progress").style.width = `${Math.round(((i+1)/items.length)*100)}%`;
+  }
+  const inferenceMsTotal = Math.round(performance.now() - tInf0);
+
+  return {
+    perItemLabels, modelLoadMs: 0, inferenceMsTotal,
+    modelUsed: modelSpec.model_id, device: "remote-api",
+    runtime: "byok", runtimeKind: "byok_api"
+  };
+}
+
+async function runBuiltin(modelSpec, items) {
+  $("running-heading").textContent = "Running leaves via browser built-in AI";
+  show("stage-loading-model");
+  $("model-status").textContent = "Creating LanguageModel session…";
+
+  const tLoad0 = performance.now();
+  const session = await window._neoBuiltin.create();
+  const modelLoadMs = Math.round(performance.now() - tLoad0);
+  $("model-status").textContent = "Session ready.";
+
+  hide("stage-loading-model");
+  show("stage-running");
+  $("run-status").textContent = `Prompting built-in model for ${items.length} reviews…`;
+
+  const tInf0 = performance.now();
+  const perItemLabels = [];
+  for (let i = 0; i < items.length; i++) {
+    const prompt = modelSpec.prompt_template.replace("{text}", items[i].text);
+    const out = await session.prompt(prompt);
+    const text = (out || "").trim().toUpperCase();
+    const label = text.startsWith("POS") ? "POSITIVE" : "NEGATIVE";
+    perItemLabels.push({ id: items[i].id, label, score: 1.0 });
+    $("run-progress").style.width = `${Math.round(((i+1)/items.length)*100)}%`;
+  }
+  const inferenceMsTotal = Math.round(performance.now() - tInf0);
+
+  try { session.destroy(); } catch {}
+
+  return {
+    perItemLabels, modelLoadMs, inferenceMsTotal,
+    modelUsed: modelSpec.model_id, device: "browser-builtin",
+    runtime: "client", runtimeKind: "browser_builtin"
+  };
+}
+
+// =========================================================================
+// Orchestration
+// =========================================================================
+
+async function executeAndShow(runtimeKind, runner) {
+  hide("stage-offer");
+  try {
+    const modelSpec = findOption(runtimeKind);
+    if (!modelSpec) throw new Error(`No model_option with runtime_kind=${runtimeKind}`);
+    const result = await runner(modelSpec);
+    hide("stage-running");
+    buildAndShowEnvelope(result);
+  } catch (e) {
+    hide("stage-loading-model");
+    hide("stage-running");
+    show("stage-error");
+    $("error-detail").textContent = `${e.message}\n\n${e.stack || ""}`.trim();
+    console.error("[NeoProtocol] Run failed:", e);
+  }
+}
+
+function buildAndShowEnvelope(result) {
+  show("stage-results");
+
+  const distribution = result.perItemLabels.reduce((acc, r) => {
     const k = r.label.toLowerCase();
     acc[k] = (acc[k] || 0) + 1;
     return acc;
@@ -241,16 +442,17 @@ async function onAgree() {
     task_id: offer.task.id,
     status: "completed",
     execution: {
-      runtime: "client",
-      model_used: modelSpec.model_id,
-      device,
-      model_load_ms: modelLoadMs,
-      inference_ms_total: inferenceMsTotal,
-      items_processed: reviews.items.length
+      runtime: result.runtime,
+      runtime_kind: result.runtimeKind,
+      model_used: result.modelUsed,
+      device: result.device,
+      model_load_ms: result.modelLoadMs,
+      inference_ms_total: result.inferenceMsTotal,
+      items_processed: result.perItemLabels.length
     },
     results: {
       sentiment_distribution: distribution,
-      per_item_labels: perItemLabels
+      per_item_labels: result.perItemLabels
     }
   };
 
@@ -260,15 +462,8 @@ async function onAgree() {
     Object.entries(envelope.results).filter(([k]) => allowed.has(k))
   );
 
-  renderResults(envelope, perItemLabels);
-}
-
-function renderResults(envelope, perItemLabels) {
-  hide("stage-running");
-  show("stage-results");
-
   $("reviews-list").innerHTML = reviews.items.map((r, i) => {
-    const lab = perItemLabels[i];
+    const lab = result.perItemLabels[i];
     return `<div class="review">
       <span><strong>${r.id}</strong> · ${escapeHtml(r.text)}</span>
       <span><span class="label ${lab.label}">${lab.label}</span> <span class="score">${lab.score}</span></span>
@@ -276,25 +471,59 @@ function renderResults(envelope, perItemLabels) {
   }).join("");
 
   $("envelope-json").textContent = JSON.stringify(envelope, null, 2);
-
   console.log("[NeoProtocol] Result envelope (would POST to originator):", envelope);
 }
+
+// =========================================================================
+// Decline + error reset
+// =========================================================================
 
 function onDecline() {
   hide("stage-offer");
   show("stage-declined");
-
   const envelope = {
     protocol_version: "neoprotocol/0",
     task_id: offer.task.id,
     status: "declined",
     reason: "user_declined"
   };
-
   $("decline-fallback").textContent = JSON.stringify(offer.fallback_estimate, null, 2);
   $("decline-envelope").textContent = JSON.stringify(envelope, null, 2);
   console.log("[NeoProtocol] Decline envelope:", envelope);
 }
+
+function onRetry() {
+  hide("stage-error");
+  show("stage-offer");
+}
+
+// =========================================================================
+// BYOK modal
+// =========================================================================
+
+function openByokModal() {
+  $("byok-key").value = sessionStorage.getItem("neoproto_byok_key") || "";
+  $("byok-key-status").textContent = "";
+  show("byok-modal");
+  $("byok-key").focus();
+}
+
+function closeByokModal() { hide("byok-modal"); }
+
+async function confirmByok() {
+  const key = $("byok-key").value.trim();
+  if (!key.startsWith("sk-")) {
+    $("byok-key-status").textContent = "Doesn't look like a valid OpenAI key (expected sk-...).";
+    return;
+  }
+  sessionStorage.setItem("neoproto_byok_key", key);
+  closeByokModal();
+  executeAndShow("byok_api", (modelSpec) => runByokOpenAI(modelSpec, reviews.items, key));
+}
+
+// =========================================================================
+// Wire up
+// =========================================================================
 
 function escapeHtml(s) {
   return s.replace(/[&<>"']/g, (c) => ({
@@ -302,8 +531,15 @@ function escapeHtml(s) {
   }[c]));
 }
 
-$("btn-agree").addEventListener("click", onAgree);
+$("btn-agree").addEventListener("click", () =>
+  executeAndShow("local_onnx", (modelSpec) => runLocalOnnx(modelSpec, reviews.items)));
+$("btn-byok").addEventListener("click", openByokModal);
+$("btn-builtin").addEventListener("click", () =>
+  executeAndShow("browser_builtin", (modelSpec) => runBuiltin(modelSpec, reviews.items)));
 $("btn-decline").addEventListener("click", onDecline);
+$("btn-retry").addEventListener("click", onRetry);
+$("byok-cancel").addEventListener("click", closeByokModal);
+$("byok-confirm").addEventListener("click", confirmByok);
 
 loadOffer().catch(err => {
   $("stage-loading").innerHTML = `<span class="status" style="color:var(--danger)">Failed to load offer: ${err.message}</span>`;
