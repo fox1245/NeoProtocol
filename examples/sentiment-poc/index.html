@@ -176,38 +176,44 @@ async function onAgree() {
   const modelSpec = node.leaf_spec.model_options[0];
   const tLoad0 = performance.now();
 
-  let device = "wasm";
-  let classifier;
-  try {
-    classifier = await pipeline(
-      node.leaf_spec.task,
-      modelSpec.model_id,
-      {
-        dtype: modelSpec.quantized ? "q8" : "fp32",
-        device: modelSpec.device_pref[0],
-        progress_callback: (p) => {
-          if (p.status === "progress" && p.total) {
-            const pct = Math.round((p.loaded / p.total) * 100);
-            $("model-progress").style.width = pct + "%";
-            $("model-status").textContent = `${p.file}: ${pct}% (${(p.loaded/1024/1024).toFixed(1)}/${(p.total/1024/1024).toFixed(1)} MB)`;
-          } else if (p.status === "ready") {
-            $("model-status").textContent = "Model ready.";
-          } else if (p.status) {
-            $("model-status").textContent = `${p.status}: ${p.file || ""}`;
-          }
+  // Pick a (device, dtype) combo that's actually known to produce
+  // correct outputs in transformers.js v3 browser. The q8 quantization
+  // path is only sound on the WASM/CPU execution provider; the WebGPU
+  // provider expects fp16/fp32 and silently produces garbage if asked
+  // for q8. We honor device_pref order but skip combos that aren't
+  // safe — WebGPU + non-quantized only.
+  function pickDeviceDtype(spec) {
+    const prefs = spec.device_pref || ["wasm"];
+    for (const p of prefs) {
+      if (p === "wasm") return { device: "wasm", dtype: spec.quantized ? "q8" : "fp32" };
+      if (p === "webgpu" && !spec.quantized) return { device: "webgpu", dtype: "fp16" };
+      // webgpu + quantized=true → unsafe in v3, fall through
+    }
+    return { device: "wasm", dtype: "q8" };
+  }
+
+  const { device, dtype } = pickDeviceDtype(modelSpec);
+  $("model-status").textContent = `Selected device=${device}, dtype=${dtype} (from prefs ${modelSpec.device_pref.join(",")}).`;
+
+  const classifier = await pipeline(
+    node.leaf_spec.task,
+    modelSpec.model_id,
+    {
+      dtype,
+      device,
+      progress_callback: (p) => {
+        if (p.status === "progress" && p.total) {
+          const pct = Math.round((p.loaded / p.total) * 100);
+          $("model-progress").style.width = pct + "%";
+          $("model-status").textContent = `${p.file}: ${pct}% (${(p.loaded/1024/1024).toFixed(1)}/${(p.total/1024/1024).toFixed(1)} MB)`;
+        } else if (p.status === "ready") {
+          $("model-status").textContent = `Model ready (${device}/${dtype}).`;
+        } else if (p.status) {
+          $("model-status").textContent = `${p.status}: ${p.file || ""}`;
         }
       }
-    );
-    device = modelSpec.device_pref[0];
-  } catch (e) {
-    // WebGPU unavailable / failed — fall back to wasm.
-    $("model-status").textContent = `${modelSpec.device_pref[0]} unavailable, falling back to wasm…`;
-    classifier = await pipeline(node.leaf_spec.task, modelSpec.model_id, {
-      dtype: modelSpec.quantized ? "q8" : "fp32",
-      device: "wasm"
-    });
-    device = "wasm";
-  }
+    }
+  );
   const modelLoadMs = Math.round(performance.now() - tLoad0);
 
   hide("stage-loading-model");

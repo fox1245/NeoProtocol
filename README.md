@@ -58,6 +58,21 @@ consent dialog, and on agree downloads ~17 MB DistilBERT-SST2 via
 transformers.js, runs sentiment classification on 12 sample reviews
 locally, and prints the result envelope that would post back.
 
+### Known v0 limitations
+
+- **Model domain mismatch.** DistilBERT-SST2 is trained on movie
+  reviews. Product-review cues like "returning it" or "chemical smell"
+  can fool it. r8 in the sample set is a known miss. This is a
+  picked-model issue, not a protocol/runtime issue — swap in a product-
+  domain classifier (e.g. `Xenova/twitter-roberta-base-sentiment-latest`)
+  for sturdier results in your own deployment.
+- **q8 + WebGPU is unsafe in transformers.js v3 browser.** The picker
+  in `index.html` skips this combo (q8 → WASM EP only; WebGPU needs
+  fp16/fp32). If you set `device_pref: ["webgpu"]` AND `quantized:
+  true` the picker falls through to wasm.
+- **No real server yet.** `graph.json` is static; result envelope is
+  logged to console rather than POSTed.
+
 ## Roadmap
 
 - **v0 (now)**: static task offer, sentiment-only PoC
