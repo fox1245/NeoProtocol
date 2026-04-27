@@ -1,0 +1,81 @@
+{
+  "protocol_version": "neoprotocol/0",
+  "task": {
+    "id": "demo-multi-leaf-001",
+    "type": "review_analysis_batch",
+    "human_description": "Per review: classify sentiment AND extract a 1-3 word topic keyword. Then aggregate into a topic→sentiment matrix."
+  },
+  "graph": {
+    "channels": {
+      "reviews":           { "reducer": "replace" },
+      "sentiment_results": { "reducer": "append"  },
+      "keyword_results":   { "reducer": "append"  },
+      "matrix":            { "reducer": "replace" }
+    },
+    "nodes": [
+      {
+        "id": "classify_sentiment",
+        "kind": "leaf",
+        "runtime": "client",
+        "reads":  ["reviews"],
+        "writes": ["sentiment_results"],
+        "implementation": {
+          "model": "server_described",
+          "task": "sentiment-analysis",
+          "model_options": [
+            {
+              "runtime_kind": "local_onnx",
+              "model_id": "Xenova/distilbert-base-uncased-finetuned-sst-2-english",
+              "size_mb": 17,
+              "quantized": true,
+              "device_pref": ["wasm"]
+            }
+          ]
+        }
+      },
+      {
+        "id": "extract_keyword",
+        "kind": "leaf",
+        "runtime": "client",
+        "reads":  ["reviews"],
+        "writes": ["keyword_results"],
+        "implementation": {
+          "model": "server_described",
+          "task": "keyword-extraction",
+          "executor_strategy": "first_long_token",
+          "note": "Trivial heuristic in v0.3 demo — picks the first non-stopword token >=4 chars per review. A real Level 1+ deployment would ship a tiny model_options list here too."
+        }
+      },
+      {
+        "id": "aggregate",
+        "kind": "reducer",
+        "runtime": "client",
+        "reads":  ["sentiment_results", "keyword_results"],
+        "writes": ["matrix"],
+        "implementation": {
+          "model": "executor_registered",
+          "node_name": "neoprotocol.builtin.zip_and_count",
+          "input_schema":  { "type": "object" },
+          "output_schema": { "type": "object" }
+        }
+      }
+    ],
+    "edges": [
+      { "from": "__start__",          "to": "classify_sentiment" },
+      { "from": "__start__",          "to": "extract_keyword" },
+      { "from": "classify_sentiment", "to": "aggregate" },
+      { "from": "extract_keyword",    "to": "aggregate" },
+      { "from": "aggregate",          "to": "__end__" }
+    ]
+  },
+  "input_data_ref": "reviews.json",
+  "data_locality": {
+    "raw_input_visibility": "client_only",
+    "returns_to_originator": ["sentiment_distribution", "topic_sentiment_matrix", "per_item"]
+  },
+  "fallback_estimate": {
+    "if_declined_originator_will": "Run via OpenAI gpt-4o-mini",
+    "estimated_cost_usd": 0.012,
+    "estimated_latency_ms": 14000
+  }
+}

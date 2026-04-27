@@ -1,0 +1,16 @@
+{
+  "items": [
+    { "id": "r1",  "text": "This headphone has incredible bass and the battery lasts forever." },
+    { "id": "r2",  "text": "Battery died after one week, charger broken too." },
+    { "id": "r3",  "text": "Sound quality is okay but the build feels cheap." },
+    { "id": "r4",  "text": "Loving the noise cancellation feature, perfect for travel." },
+    { "id": "r5",  "text": "Bluetooth keeps disconnecting every five minutes, frustrating." },
+    { "id": "r6",  "text": "Comfortable cushions, can wear them all day without ear pain." },
+    { "id": "r7",  "text": "Microphone quality is terrible, my colleagues cannot hear me on calls." },
+    { "id": "r8",  "text": "Excellent battery life and the charging is super fast." },
+    { "id": "r9",  "text": "Build quality is premium, feels worth every penny." },
+    { "id": "r10", "text": "Bluetooth connection is rock solid, never had a dropout." },
+    { "id": "r11", "text": "Cushions started peeling after a month, very disappointing." },
+    { "id": "r12", "text": "Sound is crisp and clear, microphone picks up my voice perfectly." }
+  ]
+}

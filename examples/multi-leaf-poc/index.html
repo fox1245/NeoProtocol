@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>NeoProtocol Multi-Leaf PoC — Sentiment + Keyword (Level 1)</title>
+<style>
+  :root {
+    --bg: #fafafa; --fg: #1a1a1a; --muted: #666;
+    --accent: #2962ff; --accent-hover: #1d4fd8; --danger: #b00020;
+    --border: #e0e0e0; --code-bg: #f3f3f3;
+    --pos: #2e7d32; --neg: #c62828;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    background: var(--bg); color: var(--fg);
+    max-width: 880px; margin: 0 auto; padding: 32px 24px; line-height: 1.5;
+  }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 15px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 28px 0 8px; }
+  .lead { color: var(--muted); margin: 0 0 24px; font-size: 14px; }
+  .card { background: white; border: 1px solid var(--border); border-radius: 8px; padding: 18px 20px; margin: 12px 0; }
+  .row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 14px; border-bottom: 1px dashed var(--border); gap: 12px; }
+  .row:last-child { border-bottom: 0; }
+  .row .k { color: var(--muted); flex-shrink: 0; }
+  .row .v { font-family: ui-monospace, "SF Mono", Menlo, monospace; text-align: right; word-break: break-all; }
+  .actions { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
+  button { border: 0; border-radius: 6px; padding: 10px 16px; font-size: 14px; font-weight: 500; cursor: pointer; }
+  button.primary { background: var(--accent); color: white; }
+  button.primary:hover { background: var(--accent-hover); }
+  button.secondary { background: #e8e8e8; }
+  button.danger { background: #f5e0e0; color: var(--danger); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .status { font-family: ui-monospace, monospace; font-size: 12px; color: var(--muted); }
+  .progress { height: 6px; background: var(--code-bg); border-radius: 3px; overflow: hidden; margin: 8px 0; }
+  .progress > div { height: 100%; background: var(--accent); transition: width 0.2s; }
+  pre { background: var(--code-bg); border-radius: 6px; padding: 14px; overflow-x: auto; font-size: 12px; line-height: 1.45; border: 1px solid var(--border); }
+  .hidden { display: none !important; }
+  .leaf-tile { display: inline-block; margin: 4px 6px 4px 0; padding: 6px 10px; background: var(--code-bg); border-radius: 4px; font-family: ui-monospace, monospace; font-size: 12px; }
+  .leaf-tile.done { background: #e3f7e8; color: var(--pos); }
+  .leaf-tile.running { background: #e3f2fd; color: var(--accent); animation: pulse 1s infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1 } 50% { opacity: 0.6 } }
+  .review { padding: 8px 12px; margin: 4px 0; border-radius: 4px; background: var(--code-bg); font-size: 13px; }
+  .review .meta { display: flex; gap: 8px; margin-top: 4px; flex-wrap: wrap; }
+  .review .label { padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+  .review .label.POSITIVE { background: #e8f5e9; color: var(--pos); }
+  .review .label.NEGATIVE { background: #ffebee; color: var(--neg); }
+  .review .topic { padding: 2px 8px; border-radius: 10px; font-size: 11px; background: #fff8e1; color: #f57f17; }
+  .matrix { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
+  .matrix th, .matrix td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; }
+  .matrix th { background: var(--code-bg); }
+  .matrix .pos { color: var(--pos); font-weight: 600; }
+  .matrix .neg { color: var(--neg); font-weight: 600; }
+  .footer { margin-top: 40px; color: var(--muted); font-size: 12px; }
+  .footer a { color: var(--muted); }
+</style>
+</head>
+<body>
+
+<h1>NeoProtocol Multi-Leaf PoC — Sentiment + Keyword (Level 1)</h1>
+<p class="lead">Two leaves run in parallel (fan-out): <code>classify_sentiment</code>
+(local DistilBERT-SST2) and <code>extract_keyword</code> (built-in heuristic).
+A reducer node merges the channels into a topic→sentiment matrix. Same offer
+shape as the Level 0 demo but exercises §7.2 channels, §7.3 reducer (append),
+multi-edge fan-out + fan-in, and §8.2 Model B (executor-registered reducer).</p>
+
+<div id="stage-loading" class="card">
+  <span class="status">Fetching task offer…</span>
+</div>
+
+<div id="stage-offer" class="hidden">
+  <h2>Task Offer</h2>
+  <div class="card" id="offer-card"></div>
+  <h2>Graph topology</h2>
+  <div class="card">
+    <pre id="topology"></pre>
+  </div>
+  <div class="actions">
+    <button class="primary" id="btn-agree">Agree — run all leaves locally</button>
+    <button class="danger" id="btn-decline">Decline</button>
+  </div>
+</div>
+
+<div id="stage-running" class="hidden">
+  <h2>Executing graph</h2>
+  <div class="card">
+    <div class="status" id="run-status">Initializing…</div>
+    <div class="progress"><div id="run-progress" style="width:0%"></div></div>
+    <div id="leaf-tiles" style="margin-top: 12px;"></div>
+  </div>
+</div>
+
+<div id="stage-results" class="hidden">
+  <h2>Per-review (stays on device)</h2>
+  <div class="card" id="reviews-list"></div>
+
+  <h2>Topic → Sentiment matrix</h2>
+  <div class="card" id="matrix-display"></div>
+
+  <h2>Result envelope (sent to Originator)</h2>
+  <div class="card">
+    <p class="status" style="margin-top:0">Filtered to <code>data_locality.returns_to_originator</code>.</p>
+    <pre id="envelope-json"></pre>
+  </div>
+</div>
+
+<div id="stage-declined" class="hidden">
+  <h2>Declined</h2>
+  <div class="card">
+    <pre id="decline-info"></pre>
+  </div>
+</div>
+
+<div class="footer">
+  <p>NeoProtocol Level 1 demo — <a href="../../SPEC.md">SPEC</a> ·
+     <a href="../../README.md">README</a> ·
+     <a href="../sentiment-poc/">Level 0 demo</a></p>
+</div>
+
+<script type="module">
+import { pipeline, env } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.2";
+env.allowRemoteModels = true;
+env.allowLocalModels = false;
+
+const $ = (id) => document.getElementById(id);
+const show = (id) => $(id).classList.remove("hidden");
+const hide = (id) => $(id).classList.add("hidden");
+
+let offer = null, reviews = null;
+
+// =========================================================================
+// Built-in registered nodes (Model B). The aggregate reducer is registered
+// here by name; the offer references it via implementation.node_name.
+// =========================================================================
+
+const REGISTERED_NODES = {
+  "neoprotocol.builtin.zip_and_count": (channels) => {
+    const sentiments = (channels.sentiment_results || []).flat();
+    const keywords   = (channels.keyword_results   || []).flat();
+    const byId = new Map();
+    for (const s of sentiments) byId.set(s.id, { id: s.id, label: s.label, score: s.score });
+    for (const k of keywords)   {
+      const existing = byId.get(k.id) || { id: k.id };
+      existing.topic = k.topic;
+      byId.set(k.id, existing);
+    }
+    const per_item = [...byId.values()];
+    const sentiment_distribution = per_item.reduce((acc, r) => {
+      const k = (r.label || "").toLowerCase();
+      if (k) acc[k] = (acc[k] || 0) + 1;
+      return acc;
+    }, { positive: 0, negative: 0 });
+    // topic → {positive, negative}
+    const topic_sentiment_matrix = {};
+    for (const r of per_item) {
+      if (!r.topic || !r.label) continue;
+      const t = r.topic;
+      topic_sentiment_matrix[t] = topic_sentiment_matrix[t] || { positive: 0, negative: 0 };
+      const k = r.label.toLowerCase();
+      topic_sentiment_matrix[t][k] = (topic_sentiment_matrix[t][k] || 0) + 1;
+    }
+    return { sentiment_distribution, topic_sentiment_matrix, per_item };
+  }
+};
+
+// Built-in keyword extractor (Model A `task: "keyword-extraction"` with
+// strategy "first_long_token"). Trivial heuristic — picks the most
+// distinctive content word per review.
+const STOPWORDS = new Set([
+  "this","that","with","from","they","them","their","there","here","have",
+  "been","were","what","when","where","which","while","whose","whom","does",
+  "doing","done","into","onto","over","under","then","than","also","just",
+  "very","really","every","each","some","most","more","much","even","once",
+  "only","still","such","upon","like","makes","made","make","being","could",
+  "would","should","might","cannot","because","about","after","before",
+  "across","around","through","without","within","between","loving","keeps",
+  "lasts","worth","feels","feel","wear","ear","day","penny","calls","time",
+  "minutes","week","month","year","five"
+]);
+function extractKeyword(text) {
+  const tokens = text.toLowerCase().match(/[a-z]+/g) || [];
+  for (const t of tokens) {
+    if (t.length >= 5 && !STOPWORDS.has(t)) return t;
+  }
+  // fall back to first 4-letter+ word
+  for (const t of tokens) {
+    if (t.length >= 4 && !STOPWORDS.has(t)) return t;
+  }
+  return tokens[0] || "unknown";
+}
+
+// =========================================================================
+// Tiny graph executor — Level 1 conformant.
+// Topological order, fan-out via Promise.all, channel reducers per §7.3.
+// =========================================================================
+
+function applyReducer(reducer, prev, next) {
+  if (reducer === "append")    return [...(prev || []), next];
+  if (reducer === "replace")   return next;
+  if (reducer === "sum")       return (prev || 0) + next;
+  if (reducer === "set_merge") return [...new Set([...(prev || []), ...(next || [])])];
+  throw new Error(`Unsupported reducer: ${reducer}`);
+}
+
+class GraphExecutor {
+  constructor(graph, leafRunners, registered) {
+    this.graph    = graph;
+    this.runners  = leafRunners;       // leaf id → async fn(channels) → channelWrites {chName: value}
+    this.registered = registered;      // Model B impl by node_name
+    this.channels = {};                // per-channel current value
+    this.completed = new Set(["__start__"]);
+    for (const ch of Object.keys(graph.channels || {})) this.channels[ch] = undefined;
+  }
+
+  readyNodes() {
+    return this.graph.nodes.filter(n => !this.completed.has(n.id) && this.allUpstreamDone(n.id));
+  }
+  allUpstreamDone(nodeId) {
+    const ups = this.graph.edges.filter(e => e.to === nodeId).map(e => e.from);
+    return ups.length > 0 && ups.every(u => this.completed.has(u));
+  }
+  isFinished() {
+    return this.completed.has("__end__")
+      || this.graph.nodes.every(n => this.completed.has(n.id))
+         && !this.graph.edges.some(e => e.to === "__end__" && !this.completed.has("__end__"));
+  }
+
+  async runOne(node, onTileChange) {
+    onTileChange(node.id, "running");
+    let writes;
+    const impl = node.implementation || {};
+    if (impl.model === "executor_registered") {
+      const fn = this.registered[impl.node_name];
+      if (!fn) throw new Error(`Registered node not found: ${impl.node_name}`);
+      const reads = this.collectReads(node);
+      const out = await fn(reads);
+      writes = Object.fromEntries(node.writes.map(ch => [ch, out]));
+    } else {
+      const runner = this.runners[node.id];
+      if (!runner) throw new Error(`No runner for leaf: ${node.id}`);
+      writes = await runner(this.collectReads(node));
+    }
+    // apply writes to channels per declared reducer
+    for (const [ch, val] of Object.entries(writes || {})) {
+      const reducer = (this.graph.channels[ch] || {}).reducer || "replace";
+      this.channels[ch] = applyReducer(reducer, this.channels[ch], val);
+    }
+    this.completed.add(node.id);
+    onTileChange(node.id, "done");
+  }
+
+  collectReads(node) {
+    const out = {};
+    for (const r of (node.reads || [])) {
+      const name = r.startsWith("state.") ? r.slice("state.".length) : r;
+      out[name] = this.channels[name];
+    }
+    return out;
+  }
+
+  async run(onTileChange, onProgress) {
+    let total = this.graph.nodes.length, done = 0;
+    while (!this.isFinished()) {
+      const ready = this.readyNodes();
+      if (ready.length === 0) {
+        // Maybe __end__ — close out
+        if (this.graph.edges.some(e => e.to === "__end__" && this.completed.has(e.from))) {
+          this.completed.add("__end__");
+          break;
+        }
+        throw new Error("Graph deadlocked — no ready nodes and __end__ not reached");
+      }
+      // Fan-out: run all currently-ready in parallel.
+      await Promise.all(ready.map(n => this.runOne(n, onTileChange)));
+      done = this.completed.size - 1; // minus __start__
+      onProgress(done / total);
+    }
+    return this.channels;
+  }
+}
+
+// =========================================================================
+// Wire up
+// =========================================================================
+
+async function loadOffer() {
+  offer = await fetch("graph.json").then(r => r.json());
+  reviews = await fetch(offer.input_data_ref).then(r => r.json());
+  renderOffer();
+  hide("stage-loading");
+  show("stage-offer");
+}
+
+function renderOffer() {
+  const rows = [
+    ["Task",         offer.task.human_description],
+    ["Items",        `${reviews.items.length} reviews`],
+    ["Nodes",        offer.graph.nodes.map(n => n.id).join(", ")],
+    ["Edges",        `${offer.graph.edges.length}`],
+    ["Channels",     Object.entries(offer.graph.channels)
+                       .map(([k,v]) => `${k} (${v.reducer})`).join(", ")],
+    ["Returns",      offer.data_locality.returns_to_originator.join(", ")],
+    ["If declined",  `${offer.fallback_estimate.if_declined_originator_will} ` +
+                     `(~$${offer.fallback_estimate.estimated_cost_usd}, ` +
+                     `~${offer.fallback_estimate.estimated_latency_ms}ms)`]
+  ];
+  $("offer-card").innerHTML = rows.map(([k, v]) =>
+    `<div class="row"><span class="k">${k}</span><span class="v">${v}</span></div>`
+  ).join("");
+
+  // Topology box
+  const topo = ["__start__"];
+  for (const e of offer.graph.edges) {
+    topo.push(`  ${e.from}  ──→  ${e.to}`);
+  }
+  $("topology").textContent = topo.join("\n");
+}
+
+function renderTiles() {
+  $("leaf-tiles").innerHTML = offer.graph.nodes.map(n =>
+    `<span class="leaf-tile" id="tile-${n.id}">${n.id}</span>`
+  ).join("");
+}
+function setTile(id, state) {
+  const el = $(`tile-${id}`);
+  if (el) { el.classList.remove("running", "done"); if (state) el.classList.add(state); }
+}
+
+async function buildLeafRunners() {
+  // Map each non-reducer leaf node id to an async runner function.
+  const runners = {};
+
+  // classify_sentiment — DistilBERT-SST2 via transformers.js (wasm + q8)
+  $("run-status").textContent = "Loading classify_sentiment model (~17MB if first time)…";
+  const tLoad0 = performance.now();
+  const classifier = await pipeline(
+    "sentiment-analysis",
+    "Xenova/distilbert-base-uncased-finetuned-sst-2-english",
+    { dtype: "q8", device: "wasm" }
+  );
+  const sentLoadMs = Math.round(performance.now() - tLoad0);
+  console.log(`[multi-leaf] classifier loaded in ${sentLoadMs}ms`);
+
+  runners["classify_sentiment"] = async () => {
+    const items = reviews.items;
+    const out = [];
+    for (const it of items) {
+      const r = await classifier(it.text);
+      out.push({ id: it.id, label: r[0].label, score: +r[0].score.toFixed(4) });
+    }
+    return { sentiment_results: out };
+  };
+
+  // extract_keyword — built-in heuristic (no model load)
+  runners["extract_keyword"] = async () => {
+    const out = reviews.items.map(it => ({ id: it.id, topic: extractKeyword(it.text) }));
+    return { keyword_results: out };
+  };
+
+  return { runners, sentLoadMs };
+}
+
+async function onAgree() {
+  hide("stage-offer");
+  show("stage-running");
+  renderTiles();
+
+  let leafSetup;
+  try {
+    leafSetup = await buildLeafRunners();
+  } catch (e) {
+    $("run-status").textContent = `Failed to load model: ${e.message}`;
+    return;
+  }
+
+  // Seed `reviews` channel so downstream nodes see it.
+  const exec = new GraphExecutor(offer.graph, leafSetup.runners, REGISTERED_NODES);
+  exec.channels.reviews = reviews.items;
+
+  $("run-status").textContent = "Executing graph…";
+  const tInf0 = performance.now();
+  const finalChannels = await exec.run(
+    (id, st) => setTile(id, st),
+    (frac) => { $("run-progress").style.width = `${Math.round(frac*100)}%`; }
+  );
+  const inferenceMsTotal = Math.round(performance.now() - tInf0);
+
+  hide("stage-running");
+  show("stage-results");
+
+  const matrix = finalChannels.matrix;
+
+  // Per-review display
+  const sentMap = new Map((finalChannels.sentiment_results || []).flat().map(r => [r.id, r]));
+  const kwMap   = new Map((finalChannels.keyword_results   || []).flat().map(r => [r.id, r]));
+  $("reviews-list").innerHTML = reviews.items.map(it => {
+    const s = sentMap.get(it.id), k = kwMap.get(it.id);
+    return `<div class="review">
+      <div><strong>${it.id}</strong> · ${escapeHtml(it.text)}</div>
+      <div class="meta">
+        <span class="label ${s?.label}">${s?.label || "?"} ${s ? s.score : ""}</span>
+        <span class="topic">${k?.topic || "?"}</span>
+      </div>
+    </div>`;
+  }).join("");
+
+  // Matrix display
+  const topics = Object.keys(matrix.topic_sentiment_matrix).sort();
+  const matrixHtml = `<table class="matrix">
+    <thead><tr><th>Topic</th><th>Positive</th><th>Negative</th></tr></thead>
+    <tbody>${topics.map(t => {
+      const c = matrix.topic_sentiment_matrix[t];
+      return `<tr><td>${t}</td><td class="pos">${c.positive || 0}</td><td class="neg">${c.negative || 0}</td></tr>`;
+    }).join("")}</tbody>
+  </table>`;
+  $("matrix-display").innerHTML = matrixHtml;
+
+  // Build envelope, enforce whitelist
+  const envelope = {
+    protocol_version: "neoprotocol/0",
+    task_id: offer.task.id,
+    status: "completed",
+    execution: {
+      runtime: "client",
+      runtime_kind: "local_onnx",
+      model_used: "Xenova/distilbert-base-uncased-finetuned-sst-2-english",
+      device: "wasm",
+      model_load_ms: leafSetup.sentLoadMs,
+      inference_ms_total: inferenceMsTotal,
+      items_processed: reviews.items.length,
+      nodes_executed: offer.graph.nodes.map(n => n.id)
+    },
+    results: matrix
+  };
+  const allowed = new Set(offer.data_locality.returns_to_originator);
+  envelope.results = Object.fromEntries(
+    Object.entries(envelope.results).filter(([k]) => allowed.has(k))
+  );
+  $("envelope-json").textContent = JSON.stringify(envelope, null, 2);
+  console.log("[multi-leaf] envelope:", envelope);
+}
+
+function onDecline() {
+  hide("stage-offer");
+  show("stage-declined");
+  const env = {
+    protocol_version: "neoprotocol/0",
+    task_id: offer.task.id,
+    status: "declined",
+    reason_code: "EX-201",
+    reason: "user_declined"
+  };
+  $("decline-info").textContent =
+    JSON.stringify({ envelope: env, fallback: offer.fallback_estimate }, null, 2);
+}
+
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+$("btn-agree").addEventListener("click", onAgree);
+$("btn-decline").addEventListener("click", onDecline);
+loadOffer().catch(e => {
+  $("stage-loading").innerHTML = `<span class="status" style="color:var(--danger)">Init failed: ${e.message}</span>`;
+});
+</script>
+</body>
+</html>
