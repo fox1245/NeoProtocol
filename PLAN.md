@@ -8,15 +8,42 @@
 
 | Milestone | State    | Commits |
 |-----------|----------|---------|
-| v0        | ✅ done  | `26dd8e8`, `8248bef` |
-| v0.1 BYOK + Built-in | ✅ done | `7a6d201` |
-| v0.2 server skeleton | ✅ done | `083276e` |
-| browser↔server end-to-end | ✅ done | (this commit) |
-| v0.2-B real LLM decomposer | ⏳ next | — |
-| v0.3 capability negotiation | ⏳ | — |
+| v0 — single-leaf PoC | ✅ done | `26dd8e8`, `8248bef` |
+| v0.1 — BYOK + Built-in runtime kinds | ✅ done | `7a6d201` |
+| v0.2 — server skeleton with ajv | ✅ done | `083276e` |
+| browser↔server end-to-end | ✅ done | `cbdf406` |
+| spec v0.3 draft I (levels + multi-leaf + impl models + capability) | ✅ done | `7265e66` |
+| spec v0.3 draft II (glossary + transport + state + errors + reliability) | ✅ done | `11bb7de` |
+| **2nd independent reference impl (Python Executor)** | ✅ done | (this commit) |
+| **Interop graduation** — same `graph.json` round-trips both stacks | ✅ verified | (this commit) |
+| Conformance test suite | ⏳ next | — |
+| Multi-leaf demo (Level 1) | ⏳ | — |
+| v0.2-B real LLM decomposer | ⏳ | — |
 | v0.5 Chrome Built-in AI verified live | ⏳ (code shipped, needs flag-enabled Chrome to demo) | — |
 | v1 streaming + multi-node | ⏳ | — |
 | Tier 2 Chromium fork | ⏸ deferred | — |
+
+### Interop check (Python ↔ Browser, same Originator)
+
+Two independent Executors processed the same `graph.json` from the
+v0.2 Originator. Identical scores (q8 ONNX is deterministic), shape-
+identical Result Envelopes, server accepted both via the same ajv-
+validated schema:
+
+| | Browser Executor | Python Executor |
+|---|---|---|
+| Stack | JS + transformers.js + ONNX Web (WASM) | Python + optimum + ONNX Runtime (native CPU) |
+| Model bytes | `Xenova/.../onnx/model_quantized.onnx` (q8) | same |
+| Model load | ~8 s first / ~1 s cached | ~35 s first / ~2.3 s cached |
+| Inference per item | 34 ms (wasm) | 10 ms (native) |
+| r1 "Five stars, would buy again" | POSITIVE 0.9916 | POSITIVE 0.9916 |
+| r2 "Arrived broken" | NEGATIVE 0.9991 | NEGATIVE 0.9991 |
+| r12 "Absolutely love it" | POSITIVE 0.9998 | POSITIVE 0.9998 |
+
+This is the *graduation* from "specification + reference
+implementation" to "specification with interop-validated
+implementations" — IETF's ≥2 independent interoperating
+implementations criterion (RFC 2026 / Internet Standards Process).
 
 ## What's true today (v0)
 
