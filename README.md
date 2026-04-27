@@ -113,4 +113,11 @@ way.
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+
+The Apache 2.0 license includes an explicit patent grant from each
+contributor and a patent retaliation clause — chosen over MIT
+specifically because protocols are vulnerable to patent troll attacks
+and Apache 2.0's automatic license termination on hostile patent
+litigation provides a real defense mechanism. Industry-standard for
+protocols (gRPC, OpenAPI, Kubernetes API).
