@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  test:
+    name: Server smoke + Originator conformance (Level 0)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: conformance/requirements.txt
+
+      - name: Install server dependencies
+        working-directory: server
+        run: npm ci
+
+      - name: Start Originator
+        working-directory: server
+        run: |
+          npm start > /tmp/server.log 2>&1 &
+          echo $! > /tmp/server.pid
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:3001/healthz > /dev/null; then
+              echo "Server up after ${i} attempts"
+              exit 0
+            fi
+            sleep 0.5
+          done
+          echo "Server failed to start; log:"
+          cat /tmp/server.log
+          exit 1
+
+      - name: Server smoke (14 cases)
+        working-directory: server
+        run: npm run smoke
+
+      - name: Install conformance suite dependencies
+        working-directory: conformance
+        run: pip install -r requirements.txt
+
+      - name: Originator Level 0 conformance (18 cases)
+        working-directory: conformance
+        run: python -m originator.level0 --base-url http://localhost:3001
+
+      - name: Tail server log on failure
+        if: failure()
+        run: |
+          echo "=== Server log ==="
+          cat /tmp/server.log || true
+
+      - name: Stop Originator
+        if: always()
+        run: |
+          if [ -f /tmp/server.pid ]; then
+            kill $(cat /tmp/server.pid) 2>/dev/null || true
+          fi

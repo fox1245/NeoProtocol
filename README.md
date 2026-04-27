@@ -1,5 +1,10 @@
 # NeoProtocol
 
+[![CI](https://github.com/fox1245/NeoProtocol/actions/workflows/ci.yml/badge.svg)](https://github.com/fox1245/NeoProtocol/actions/workflows/ci.yml)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Spec: neoprotocol/0](https://img.shields.io/badge/spec-neoprotocol%2F0-7d3c98)](SPEC.md)
+[![Conformance: Originator L0 18/18](https://img.shields.io/badge/conformance-Originator%20L0%2018%2F18-brightgreen)](conformance/)
+
 **Federated agent execution.** A server orchestrates, the client's
 device executes the leaves. The contract between them is JSON.
 
