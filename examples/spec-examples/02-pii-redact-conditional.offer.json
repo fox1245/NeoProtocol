@@ -1,0 +1,131 @@
+{
+  "protocol_version": "neoprotocol/0",
+  "task": {
+    "id": "spec-example-02-pii-redact-conditional",
+    "type": "medical_query_with_pii_handling",
+    "human_description": "Answer a clinician's natural-language query about patient records. PII detection + redaction happen on device. A complexity gate decides whether the redacted query can be answered locally (T1 small model) or needs to escalate to the user's frontier API key (T3 cloud). Raw patient identifiers never leave the device."
+  },
+  "graph": {
+    "channels": {
+      "query":          { "reducer": "replace" },
+      "pii_spans":      { "reducer": "replace" },
+      "redacted":       { "reducer": "replace" },
+      "complexity":     { "reducer": "replace" },
+      "answer":         { "reducer": "replace" }
+    },
+    "nodes": [
+      {
+        "id": "detect_pii",
+        "kind": "leaf",
+        "runtime": "client",
+        "reads":  ["query"],
+        "writes": ["pii_spans"],
+        "implementation": {
+          "model": "executor_registered",
+          "node_name": "internal.medical.pii_ner",
+          "input_schema":  { "type": "object", "properties": { "text": { "type": "string" } } },
+          "output_schema": { "type": "object", "properties": { "spans": { "type": "array" } } }
+        }
+      },
+      {
+        "id": "redact",
+        "kind": "leaf",
+        "runtime": "client",
+        "reads":  ["query", "pii_spans"],
+        "writes": ["redacted"],
+        "implementation": {
+          "model": "executor_registered",
+          "node_name": "neoprotocol.builtin.span_redact",
+          "input_schema":  { "type": "object" },
+          "output_schema": { "type": "object", "properties": { "text": { "type": "string" } } }
+        }
+      },
+      {
+        "id": "score_complexity",
+        "kind": "leaf",
+        "runtime": "client",
+        "reads":  ["redacted"],
+        "writes": ["complexity"],
+        "implementation": {
+          "model": "server_described",
+          "task": "text-classification",
+          "model_options": [
+            {
+              "runtime_kind": "local_onnx",
+              "model_id": "Xenova/all-MiniLM-L6-v2",
+              "size_mb": 23,
+              "quantized": true,
+              "device_pref": ["wasm"],
+              "note": "Embedding distance to known simple-query templates."
+            }
+          ]
+        }
+      },
+      {
+        "id": "answer_local",
+        "kind": "leaf",
+        "runtime": "client",
+        "reads":  ["redacted"],
+        "writes": ["answer"],
+        "implementation": {
+          "model": "server_described",
+          "task": "text-generation",
+          "model_options": [
+            {
+              "runtime_kind": "browser_builtin",
+              "model_id": "chrome/gemini-nano",
+              "prompt_template": "Answer this clinical question briefly:\n\n{text}",
+              "size_mb": 0,
+              "note": "Browser-managed local model. Used only if score_complexity says the redacted query is simple."
+            }
+          ]
+        }
+      },
+      {
+        "id": "answer_cloud",
+        "kind": "leaf",
+        "runtime": "client",
+        "reads":  ["redacted"],
+        "writes": ["answer"],
+        "implementation": {
+          "model": "server_described",
+          "task": "text-generation",
+          "model_options": [
+            {
+              "runtime_kind": "byok_api",
+              "byok_provider": "anthropic",
+              "model_id": "anthropic/claude-3-5-sonnet",
+              "endpoint": "https://api.anthropic.com/v1/messages",
+              "prompt_template": "You are a clinical reasoning assistant. Answer this redacted query:\n\n{text}",
+              "estimated_cost_usd_per_item": 0.018
+            }
+          ]
+        }
+      }
+    ],
+    "edges": [
+      { "from": "__start__",        "to": "detect_pii" },
+      { "from": "detect_pii",       "to": "redact" },
+      { "from": "redact",           "to": "score_complexity" },
+      { "from": "score_complexity", "to": "answer_local",
+        "when": { "expr": "complexity.score < 0.5" } },
+      { "from": "score_complexity", "to": "answer_cloud",
+        "when": { "expr": "complexity.score >= 0.5" } },
+      { "from": "answer_local",     "to": "__end__" },
+      { "from": "answer_cloud",     "to": "__end__" }
+    ]
+  },
+  "input_data_ref": "inline",
+  "input_data": {
+    "query": "What is the standard prophylaxis regimen for patient John Doe, MRN 12345, with penicillin allergy undergoing dental extraction?"
+  },
+  "data_locality": {
+    "raw_input_visibility": "client_only",
+    "returns_to_originator": ["answer", "execution_path"]
+  },
+  "fallback_estimate": {
+    "if_declined_originator_will": "Refuse — clinician must run the query in a HIPAA-compliant tool",
+    "estimated_cost_usd": 0,
+    "estimated_latency_ms": 0
+  }
+}

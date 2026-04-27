@@ -1,0 +1,132 @@
+{
+  "protocol_version": "neoprotocol/0",
+  "task": {
+    "id": "spec-example-01-email-triage",
+    "type": "email_triage_batch",
+    "human_description": "Triage 200 customer-support emails on the user's device. Classify intent, extract action items, score priority. Originator only sees the sorted priority list + intent counts; raw email bodies stay on device."
+  },
+  "graph": {
+    "channels": {
+      "emails":         { "reducer": "replace" },
+      "intent_results": { "reducer": "append"  },
+      "action_items":   { "reducer": "append"  },
+      "priority_index": { "reducer": "append"  },
+      "summary":        { "reducer": "replace" }
+    },
+    "nodes": [
+      {
+        "id": "classify_intent",
+        "kind": "leaf",
+        "runtime": "client",
+        "fallback_runtime": "server",
+        "reads":  ["emails"],
+        "writes": ["intent_results"],
+        "implementation": {
+          "model": "server_described",
+          "task": "text-classification",
+          "model_options": [
+            {
+              "runtime_kind": "local_onnx",
+              "model_id": "Xenova/distilbert-base-uncased-mnli",
+              "size_mb": 67,
+              "quantized": true,
+              "device_pref": ["webgpu", "wasm"]
+            },
+            {
+              "runtime_kind": "byok_api",
+              "byok_provider": "openai",
+              "model_id": "openai/gpt-4o-mini",
+              "endpoint": "https://api.openai.com/v1/chat/completions",
+              "prompt_template": "Reply with one of: refund, technical, sales, complaint, other.\n\nEmail:\n{text}\n\nIntent:",
+              "estimated_cost_usd_per_item": 0.00004
+            }
+          ]
+        }
+      },
+      {
+        "id": "extract_action_items",
+        "kind": "leaf",
+        "runtime": "client",
+        "reads":  ["emails"],
+        "writes": ["action_items"],
+        "implementation": {
+          "model": "server_described",
+          "task": "extraction",
+          "model_options": [
+            {
+              "runtime_kind": "local_onnx",
+              "model_id": "Xenova/all-MiniLM-L6-v2",
+              "size_mb": 23,
+              "quantized": true,
+              "device_pref": ["webgpu", "wasm"],
+              "note": "Used for similarity-to-template matching against a small action-verb library."
+            },
+            {
+              "runtime_kind": "byok_api",
+              "byok_provider": "anthropic",
+              "model_id": "anthropic/claude-3-5-haiku",
+              "endpoint": "https://api.anthropic.com/v1/messages",
+              "prompt_template": "List up to 3 action items from this email as a JSON array of strings:\n\n{text}",
+              "estimated_cost_usd_per_item": 0.00012
+            }
+          ]
+        }
+      },
+      {
+        "id": "score_priority",
+        "kind": "leaf",
+        "runtime": "client",
+        "reads":  ["intent_results", "action_items"],
+        "writes": ["priority_index"],
+        "implementation": {
+          "model": "executor_registered",
+          "node_name": "neoprotocol.builtin.priority_scorer",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "intent": { "type": "string" },
+              "action_count": { "type": "integer" }
+            }
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "score": { "type": "number", "minimum": 0, "maximum": 1 }
+            }
+          }
+        }
+      },
+      {
+        "id": "summarize",
+        "kind": "reducer",
+        "runtime": "client",
+        "reads":  ["intent_results", "priority_index"],
+        "writes": ["summary"],
+        "implementation": {
+          "model": "executor_registered",
+          "node_name": "neoprotocol.builtin.email_triage_summary",
+          "input_schema":  { "type": "object" },
+          "output_schema": { "type": "object" }
+        }
+      }
+    ],
+    "edges": [
+      { "from": "__start__",            "to": "classify_intent" },
+      { "from": "__start__",            "to": "extract_action_items" },
+      { "from": "classify_intent",      "to": "score_priority" },
+      { "from": "extract_action_items", "to": "score_priority" },
+      { "from": "score_priority",       "to": "summarize" },
+      { "from": "summarize",            "to": "__end__" }
+    ]
+  },
+  "input_data_ref": "/tasks/spec-example-01-email-triage/data",
+  "data_locality": {
+    "raw_input_visibility": "client_only",
+    "returns_to_originator": ["intent_counts", "priority_sorted_ids", "action_item_aggregate_counts"]
+  },
+  "fallback_estimate": {
+    "if_declined_originator_will": "Run via OpenAI gpt-4o-mini end-to-end",
+    "estimated_cost_usd": 0.08,
+    "estimated_latency_ms": 60000
+  }
+}

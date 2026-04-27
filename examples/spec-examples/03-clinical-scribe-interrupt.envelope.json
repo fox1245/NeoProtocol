@@ -1,0 +1,18 @@
+{
+  "protocol_version": "neoprotocol/0",
+  "task_id": "spec-example-03-clinical-scribe-interrupt",
+  "status": "declined",
+  "reason_code": "EX-202",
+  "reason": "interrupt_declined",
+  "interrupted_at": "submit_to_ehr",
+  "execution": {
+    "runtime": "client",
+    "runtime_kind": "local_onnx",
+    "model_used": "Xenova/whisper-tiny.en + internal.medical.phi_ner + internal.ehr.soap_formatter_v2",
+    "device": "webgpu",
+    "model_load_ms": 1100,
+    "inference_ms_total": 4800,
+    "items_processed": 1,
+    "nodes_executed": ["transcribe", "detect_phi", "deidentify", "format_for_ehr"]
+  }
+}

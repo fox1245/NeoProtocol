@@ -1,0 +1,19 @@
+{
+  "protocol_version": "neoprotocol/0",
+  "task_id": "spec-example-02-pii-redact-conditional",
+  "status": "completed",
+  "execution": {
+    "runtime": "byok",
+    "runtime_kind": "byok_api",
+    "model_used": "anthropic/claude-3-5-sonnet",
+    "device": "remote-api",
+    "model_load_ms": 0,
+    "inference_ms_total": 1820,
+    "items_processed": 1,
+    "nodes_executed": ["detect_pii", "redact", "score_complexity", "answer_cloud"]
+  },
+  "results": {
+    "answer": "For patients with penicillin allergy undergoing dental extraction with bacteremia risk, current guidelines suggest clindamycin 600 mg orally 30–60 minutes pre-procedure, or azithromycin 500 mg as an alternative. Confirm with current AHA/ADA prophylaxis guidance and the patient's individual risk profile.",
+    "execution_path": ["detect_pii", "redact", "score_complexity", "answer_cloud"]
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "protocol_version": "neoprotocol/0",
+  "task_id": "spec-example-01-email-triage",
+  "status": "completed",
+  "execution": {
+    "runtime": "client",
+    "runtime_kind": "local_onnx",
+    "model_used": "Xenova/distilbert-base-uncased-mnli + Xenova/all-MiniLM-L6-v2",
+    "device": "webgpu",
+    "model_load_ms": 4200,
+    "inference_ms_total": 18400,
+    "items_processed": 200,
+    "nodes_executed": ["classify_intent", "extract_action_items", "score_priority", "summarize"]
+  },
+  "results": {
+    "intent_counts": {
+      "refund": 47,
+      "technical": 81,
+      "sales": 23,
+      "complaint": 39,
+      "other": 10
+    },
+    "priority_sorted_ids": [
+      { "id": "email_117", "score": 0.94 },
+      { "id": "email_032", "score": 0.91 },
+      { "id": "email_188", "score": 0.88 },
+      { "id": "email_044", "score": 0.85 },
+      { "id": "email_171", "score": 0.83 }
+    ],
+    "action_item_aggregate_counts": {
+      "issue_refund":      47,
+      "escalate_to_eng":   62,
+      "request_more_info": 31,
+      "send_followup":     74,
+      "no_action":         28
+    }
+  }
+}

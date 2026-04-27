@@ -43,13 +43,36 @@ just a dynamic loader + a tiny model.
 
 ## Status
 
-**Stage 0 PoC.** Single-page sentiment-analysis demo proving the loop:
-server-shaped task offer → consent UI → local model inference →
-result envelope. No real server yet — `graph.json` is static.
+**v0.3 — three of four IETF "real protocol" criteria reached**: spec
+(~700 lines, gemini-checklist passing), reference implementation
+(browser + server), ≥2 independent interoperating implementations
+(JS browser + Python CLI executor — RFC 2026 criterion), conformance
+test suite (Originator Level 0, 18/18 passing). The remaining
+criterion (external users) needs the social path that public release
+unlocks.
 
-See [SPEC.md](SPEC.md) for the protocol draft,
-[PLAN.md](PLAN.md) for the milestone-by-milestone roadmap, and
-[examples/sentiment-poc/](examples/sentiment-poc/) for the demo.
+Read order:
+- [SPEC.md](SPEC.md) — protocol specification (15 sections + appendix)
+- [PLAN.md](PLAN.md) — milestone roadmap with status table
+- [CHANGELOG.md](CHANGELOG.md) — version history
+- [CONTRIBUTING.md](CONTRIBUTING.md) — sign-off + commit style
+- [conformance/](conformance/) — language-neutral self-cert harness
+- examples (below) — runnable demos + spec fixtures
+
+## Examples at a glance
+
+| | Conformance Level | Status | What it shows |
+|---|---|---|---|
+| [`examples/sentiment-poc/`](examples/sentiment-poc/) | 0 | ✅ runnable | Single-leaf sentiment, 4-button consent (local / BYOK / browser-builtin / decline), `?server=URL` mode wires to the v0.2 Originator |
+| [`examples/multi-leaf-poc/`](examples/multi-leaf-poc/) | 1 | ✅ runnable | Fan-out (2 parallel leaves) + reducer, channels with `append` and `replace`, mixed Model A + Model B, ~80-line pure-JS executor |
+| [`examples/python-executor/`](examples/python-executor/) | 0 | ✅ runnable | Second independent reference Executor: Python + optimum + ONNX Runtime native CPU. Same q8 ONNX bytes as browser, identical scores — interop validation |
+| [`examples/spec-examples/01-email-triage`](examples/spec-examples/) | 1 | 📜 fixture | Large fan-out (200 items), three impl options per leaf (local / BYOK OpenAI / BYOK Anthropic) |
+| [`examples/spec-examples/02-pii-redact-conditional`](examples/spec-examples/) | 2 | 📜 fixture | Conditional edges with `when` predicates, T1/T3 capability split via complexity gate |
+| [`examples/spec-examples/03-clinical-scribe-interrupt`](examples/spec-examples/) | 3 | 📜 fixture | `interrupt_before` per-leaf consent, deeply chained Model B for healthcare-specific logic |
+
+**Runnable** = working code, end-to-end verified against the
+reference Originator. **Fixture** = JSON-only worked example,
+validates against the canonical schemas (`node examples/spec-examples/validate.mjs`).
 
 ## Quickstart
 

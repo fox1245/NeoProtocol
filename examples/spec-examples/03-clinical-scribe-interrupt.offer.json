@@ -1,0 +1,111 @@
+{
+  "protocol_version": "neoprotocol/0",
+  "task": {
+    "id": "spec-example-03-clinical-scribe-interrupt",
+    "type": "clinical_scribe_with_pii_gate",
+    "human_description": "Convert a clinician's recorded dictation into an EHR-formatted note. Transcription + de-identification happen on device. Before submitting to the EHR vendor's API, the clinician explicitly approves the de-identified content. PHI never leaves the device unredacted; clinician retains a per-submission veto."
+  },
+  "graph": {
+    "channels": {
+      "audio_blob":      { "reducer": "replace" },
+      "transcript":      { "reducer": "replace" },
+      "phi_spans":       { "reducer": "replace" },
+      "deidentified":    { "reducer": "replace" },
+      "ehr_payload":     { "reducer": "replace" },
+      "submission_ack":  { "reducer": "replace" }
+    },
+    "interrupt_before": ["submit_to_ehr"],
+    "nodes": [
+      {
+        "id": "transcribe",
+        "kind": "leaf",
+        "runtime": "client",
+        "reads":  ["audio_blob"],
+        "writes": ["transcript"],
+        "implementation": {
+          "model": "server_described",
+          "task": "automatic-speech-recognition",
+          "model_options": [
+            {
+              "runtime_kind": "local_onnx",
+              "model_id": "Xenova/whisper-tiny.en",
+              "size_mb": 39,
+              "quantized": true,
+              "device_pref": ["webgpu", "wasm"]
+            }
+          ]
+        }
+      },
+      {
+        "id": "detect_phi",
+        "kind": "leaf",
+        "runtime": "client",
+        "reads":  ["transcript"],
+        "writes": ["phi_spans"],
+        "implementation": {
+          "model": "executor_registered",
+          "node_name": "internal.medical.phi_ner",
+          "input_schema":  { "type": "object" },
+          "output_schema": { "type": "object" }
+        }
+      },
+      {
+        "id": "deidentify",
+        "kind": "leaf",
+        "runtime": "client",
+        "reads":  ["transcript", "phi_spans"],
+        "writes": ["deidentified"],
+        "implementation": {
+          "model": "executor_registered",
+          "node_name": "neoprotocol.builtin.span_redact",
+          "input_schema":  { "type": "object" },
+          "output_schema": { "type": "object" }
+        }
+      },
+      {
+        "id": "format_for_ehr",
+        "kind": "leaf",
+        "runtime": "client",
+        "reads":  ["deidentified"],
+        "writes": ["ehr_payload"],
+        "implementation": {
+          "model": "executor_registered",
+          "node_name": "internal.ehr.soap_formatter_v2",
+          "input_schema":  { "type": "object" },
+          "output_schema": { "type": "object" }
+        }
+      },
+      {
+        "id": "submit_to_ehr",
+        "kind": "leaf",
+        "runtime": "client",
+        "reads":  ["ehr_payload"],
+        "writes": ["submission_ack"],
+        "implementation": {
+          "model": "executor_registered",
+          "node_name": "internal.ehr.epic_submit_v3",
+          "input_schema":  { "type": "object" },
+          "output_schema": { "type": "object" }
+        }
+      }
+    ],
+    "edges": [
+      { "from": "__start__",      "to": "transcribe" },
+      { "from": "transcribe",     "to": "detect_phi" },
+      { "from": "detect_phi",     "to": "deidentify" },
+      { "from": "deidentify",     "to": "format_for_ehr" },
+      { "from": "format_for_ehr", "to": "submit_to_ehr" },
+      { "from": "submit_to_ehr",  "to": "__end__" }
+    ]
+  },
+  "input_data_ref": "/sessions/<session>/audio_blob",
+  "data_locality": {
+    "raw_input_visibility": "client_only",
+    "returns_to_originator": ["submission_ack"]
+  },
+  "fallback_estimate": {
+    "if_declined_originator_will": "Discard — clinician must scribe manually",
+    "estimated_cost_usd": 0,
+    "estimated_latency_ms": 0
+  }
+}
