@@ -1,17 +1,29 @@
-# Cowork PoC — Stage 1: Living document with two agents
+# Cowork PoC — Stages 1+2: Living document + cross-agent ACP
 
-Reference implementation for [SPEC §17](../../SPEC.md) Stage 1 of the
-[Collaborative Workspace roadmap](../../docs/roadmap-collaborative-workspace.md).
+Reference implementation for [SPEC §17](../../SPEC.md) Stages 1–2 of
+the [Collaborative Workspace roadmap](../../docs/roadmap-collaborative-workspace.md).
 
 ## What it shows
 
 Two browsers open the same URL, join a room, and share a single
 JavaScript document via Y.js CRDT over WebRTC. Each user has their
-own BYOK agent panel (Anthropic in v0.3, more later). When a user
-asks their agent to make an edit, the agent sees the current buffer,
-returns a suggested replacement, the user previews + applies, and the
-edit propagates to the peer with attribution metadata so the peer's
-UI can flash a "this came from User A's agent" toast.
+own BYOK agent panel (Anthropic in v0.3, more later).
+
+**Stage 1**: a user asks **their** agent to make an edit, the agent
+sees the current buffer, returns a suggested replacement, the user
+previews + applies, and the edit propagates to the peer with
+attribution metadata so the peer's UI can flash a "this came from
+User A's agent" toast.
+
+**Stage 2**: a user can also tick the *"Send to peer's agent"* box.
+The prompt then travels P2P over a second multiplexed data channel
+to the **peer's** agent. The peer's UI shows a permission dialog
+(Allow once / Allow this session / Deny / Deny session). On allow,
+the peer's agent runs the prompt, streams reasoning back, and emits
+a `candidate_document` carrying the proposed full document. The
+asker applies it; attribution credits the *remote* peer and agent —
+the wire records who actually authored the bytes even though the
+local user pressed Apply.
 
 The Originator only signals — it never sees the document, the prompt,
 the agent output, or the attribution. ACP and Y.js traffic both ride
@@ -61,12 +73,13 @@ Originator, never to the peer.
 
 | File | What |
 |---|---|
-| `index.html` | UI shell — header, two-pane layout, agent panel, suggestion card, activity log |
-| `app.js` | Wiring — Join/Leave, peer handshake, agent prompt flow, suggestion → apply |
-| `peer.js` | Reused from `../p2p-acp-poc/peer.js` (with parameterized data-channel label) |
-| `ydoc-channel.js` | Y.js sync + awareness over an `RTCDataChannel` (sync_step1 / step2 / update + awareness.update frames). ~110 LOC |
+| `index.html` | UI shell — header, two-pane layout, agent panel, *send-to-peer* toggle, suggestion card, cross-agent permission card, activity log |
+| `app.js` | Wiring — Join/Leave, peer handshake, agent prompt flow, suggestion → apply, cross-agent permission dialog handler |
+| `peer.js` | Reused from `../p2p-acp-poc/peer.js`. Stage 2 added `dcLabels: string[]` for opening multiple multiplexed data channels (Workspace + ACP) on the same `RTCPeerConnection`, plus `labeled-channel-open` events and a `channel(label)` lookup |
+| `ydoc-channel.js` | Y.js sync + awareness over the Workspace `RTCDataChannel` (sync_step1 / step2 / update + awareness.update frames). ~110 LOC |
 | `workspace.js` | CodeMirror 6 + `yCollab` binding + `applyAgentEdit` (CRDT-friendly minimal-change apply with attribution metadata) |
-| `agent.js` | BYOK Anthropic Messages API client + offline mock agent |
+| `cross-agent.js` | Stage 2 — ACP recursion. `makeCrossAgentChannel(dc)` returns one `JsonRpcChannel` shared between `startCrossAgentReceiver` (handles inbound prompts with permission gate) and `startCrossAgentSender` (asks peer's agent). ~230 LOC |
+| `agent.js` | BYOK Anthropic Messages API client + offline mock agent (used by both local and peer-side agent invocations) |
 
 ## How it relates to Federated Mode (§16)
 
@@ -88,16 +101,16 @@ What's new in Stage 1:
 - First-joiner seed rule (SPEC §17.2.2) — preventing a CRDT
   double-seed race the PoC verification caught.
 
-## What's NOT in Stage 1
+## What's NOT in Stages 1+2
 
-(Stages 2+ — see roadmap.)
+(Stages 3+ — see roadmap.)
 
-- Cross-agent ACP (User A's agent → User B's agent with consent)
 - Real workspace folder via `FileSystemDirectoryHandle`
 - Multi-buffer / file tree
 - Local-model agent (transformers.js + WebGPU)
 - Multi-peer (>2 Coworkers) mesh
 - TURN fallback for symmetric NAT
+- `allow_per_path` grant scope (reserved in §17.4 for Stage 3 when there are multiple Virtual Paths in flight per session)
 
 ## Known limits
 

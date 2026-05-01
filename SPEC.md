@@ -954,11 +954,12 @@ either side ─ leave / close
 
 ## 17. Collaborative Workspace
 
-> **Status: v0.3 draft, Stage 1 reference implementation shipped.**
+> **Status: v0.3 draft, Stages 1+2 reference implementation shipped.**
 > Stage 1 covers §§17.1–17.2, §17.5 attribution, and the Stage 1
-> portion of §17.6 lifecycle. Stage 2 (cross-agent ACP, §17.4) is
-> committed but not yet shipped. Stage 3 onwards (§17.3 real-file
-> mapping) is conditional. See
+> portion of §17.6 lifecycle. Stage 2 covers §17.4 (cross-agent
+> permission grants + ACP recursion shape + streamed candidate
+> document). Stage 3 onwards (§17.3 real-file mapping) is
+> conditional. See
 > [`docs/roadmap-collaborative-workspace.md`](docs/roadmap-collaborative-workspace.md)
 > for the staged plan and decision criteria.
 
@@ -1053,7 +1054,7 @@ detail; the slot is reserved here.**
 - Path traversal outside the sandbox MUST yield `FED-001` /
   `FED-002` (unchanged from §16.4).
 
-### 17.4 Cross-agent permission grants (Stage 2)
+### 17.4 Cross-agent permission grants (Stage 2 — implemented)
 
 When a peer's agent issues an ACP request whose target is the
 *peer's* agent (rather than its own user), the receiving Driver
@@ -1063,15 +1064,93 @@ scope:
 | Grant | Meaning |
 |---|---|
 | `allow_once`        | This single request only. Future requests re-prompt. |
-| `allow_session`     | All future requests with the same `(method, virtual_path_root)` for the active session. |
-| `allow_per_path`    | All future requests with the *exact* `path` for the active session. |
+| `allow_session`     | All future requests from the same `(remote_peer_id, remote_agent_id)` pair for the active session. |
+| `allow_per_path`    | (Stage 3+) all future requests with the *exact* `path` for the active session. Reserved; Stage 2 PoC does not emit. |
 | `deny_once`         | Reject this request (`FED-003`). Future requests re-prompt. |
-| `deny_session`      | Reject this and all future requests for the session. |
+| `deny_session`      | Reject this and all future requests from the same `(remote_peer_id, remote_agent_id)` pair for the session. |
 
 These extend the existing `session/request_permission` outcome
 field. A peer that does not understand the new grant variants MUST
 treat them as `allow_once` / `deny_once` respectively for forward
 compatibility.
+
+#### 17.4.1 ACP recursion shape
+
+Cross-agent calls reuse the §16 ACP wire format unchanged. The
+receiver acts as an ACP **agent** (handles `initialize`,
+`session/new`, `session/prompt`); the sender acts as an ACP
+**client**. Because both halves run on every Coworker (a peer can
+ask AND be asked), implementations MUST share **one**
+`JsonRpcChannel` per `neoprotocol-acp` data channel — instantiating
+two channels on the same `RTCDataChannel` causes both to listen for
+incoming frames and the empty-handlers half will reply
+"method not found" before the populated half can respond.
+Reference impl: `examples/cowork-poc/cross-agent.js` exposes
+`makeCrossAgentChannel(dc)` returning the shared channel that both
+`startCrossAgentReceiver` and `startCrossAgentSender` hook into.
+
+#### 17.4.2 Cross-agent identification on the wire
+
+`initialize` and `session/new` requests in the cross-agent direction
+carry two non-standard ACP fields so the peer's agent can identify
+the asker for the permission UI and so attribution (§17.5) can
+travel with the eventual edit:
+
+```jsonc
+{ "method": "initialize", "params": {
+    "protocolVersion": 1,
+    "clientCapabilities": { "fs": { "readTextFile": false, "writeTextFile": false } },
+    "fromPeerId":  "<asker peer_id>",
+    "fromAgentId": "<asker's agentId, e.g. 'anthropic' / 'mock'>"
+} }
+
+{ "method": "session/new", "params": {
+    "fromPeerId":  "...",
+    "fromAgentId": "...",
+    "mcpServers":  []
+} }
+```
+
+The receiver's `initialize` reply MUST echo its own identity so the
+asker can build the attribution stamp:
+
+```jsonc
+{ "result": {
+    "protocolVersion": 1,
+    "agentCapabilities": { ... },
+    "peerId":  "<receiver peer_id>",
+    "agentId": "<receiver's agentId>"
+} }
+```
+
+#### 17.4.3 Streamed candidate document
+
+The receiver's `session/prompt` response uses two
+`session/update` notifications followed by `{stopReason}`:
+
+1. `agent_message_chunk` (streamed, possibly multiple) — the
+   reasoning the receiver's agent produced.
+2. `candidate_document` (terminal) — the proposed full document, to
+   be applied by the asker via §17.5 attribution stamping.
+
+```jsonc
+// Notification (one or more):
+{ "method": "session/update", "params": {
+    "sessionId": "...",
+    "update": { "kind": "agent_message_chunk", "content": { "type": "text", "text": "..." } }
+} }
+// Notification (one terminal):
+{ "method": "session/update", "params": {
+    "sessionId": "...",
+    "update": { "kind": "candidate_document", "document": "<full new document text>" }
+} }
+// Final response:
+{ "result": { "stopReason": "end_turn" } }
+```
+
+The `candidate_document` update kind is reserved by NeoProtocol; it
+extends the Zed ACP enum used in §16. Implementations that don't
+recognize the kind MUST ignore the update without erroring.
 
 ### 17.5 Attribution
 
@@ -1152,4 +1231,5 @@ relay  ─ peer_joined ──► both peers
 | v0.3 draft I | §2 conformance levels, §7 graph semantics, §8 impl models, §9 capability statement | `7265e66` |
 | v0.3 draft II | §3 glossary, §4 transport, §5 expanded sequence diagrams, §12 error code taxonomy, §13 reliability | `11bb7de` |
 | v0.3 draft III | §16 Federated Mode (ACP-over-WebRTC; Standard + Minimal signaling; Virtual Path safety profile); §3 glossary entries; §12 SIG/FED codes; §2 federated-orthogonality note | `7e22473` |
-| v0.3 draft IV | §17 Collaborative Workspace (Coworker role; Workspace channel multiplexed with ACP; first-joiner seed rule; cross-agent permission grant variants Stage-2 spec; attribution metadata); Stage 1 reference impl `examples/cowork-poc/` | this commit |
+| v0.3 draft IV | §17 Collaborative Workspace (Coworker role; Workspace channel multiplexed with ACP; first-joiner seed rule; cross-agent permission grant variants Stage-2 spec; attribution metadata); Stage 1 reference impl `examples/cowork-poc/` | `78e1124` |
+| v0.3 draft V | §17.4 Stage-2 reference impl shipped — cross-agent ACP recursion (§17.4.1 shared-`JsonRpcChannel` rule, §17.4.2 from/to peer-agent identity wire fields, §17.4.3 streamed candidate-document update kind). `examples/cowork-poc/cross-agent.js` ~230 LOC. peer.js parameterized for multi-DC mode (`dcLabels: string[]`) | this commit |

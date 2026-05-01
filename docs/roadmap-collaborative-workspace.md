@@ -335,10 +335,37 @@ These are explicitly **not** ambitions of NeoProtocol Workspace:
 | Stage | Status | Owner | Target |
 |---|---|---|---|
 | 1 — Living document with two agents | **✅ shipped** (`examples/cowork-poc/`, SPEC §17) | — | done |
-| 2 — Cross-agent ACP | **committed, next** | — | next 1–2 weeks |
+| 2 — Cross-agent ACP | **✅ shipped** (`examples/cowork-poc/cross-agent.js`, SPEC §17.4) | — | done |
 | 3 — Real workspace | conditional on Stage 2 demo response | — | TBD |
 | 4 — Local model option | conditional on Stage 3 | — | TBD |
 | 5 — Editor surface upgrade | conditional on Stages 1–4 traction | — | TBD |
+
+**Stage 2 — what we learned (from the PoC verification run, 2026-05-01):**
+
+- ACP recursion really is just ACP. We didn't need a new wire
+  format for "agent A asks agent B" — the existing §16 JSON-RPC
+  framing carries it, with two new optional `fromPeerId` /
+  `fromAgentId` params on `initialize` and `session/new` so the
+  asker identifies themselves for the permission UI and for §17.5
+  attribution.
+- **Shared `JsonRpcChannel` rule** discovered the hard way: when
+  both peers run a sender AND a receiver on the same data channel
+  (because every Coworker can ask AND be asked), instantiating two
+  `JsonRpcChannel` objects on one `RTCDataChannel` makes both listen
+  to every frame; the sender (no request handlers) replies
+  "method not found" before the receiver responds. Fix is now
+  SPEC §17.4.1: one channel per DC, both halves register on it.
+- **`candidate_document` update kind**: extending the Zed ACP enum
+  was lighter than a separate fetch round-trip. Receiver streams
+  `agent_message_chunk` reasoning (free-form), then emits a single
+  terminal `{kind: candidate_document, document: "..."}`. Asker
+  applies through the same `applyAgentEdit` codepath as Stage 1; the
+  attribution stamp uses the remote peer/agent IDs so the wire
+  records the actual author.
+- Permission grant scope is `(remote_peer_id, remote_agent_id)` —
+  not per-method, not per-path. Per-path lives in §17.4
+  `allow_per_path` reserved for Stage 3 when there are multiple
+  Virtual Paths in flight per session.
 
 **Stage 1 — what we learned (from the PoC verification run, 2026-05-01):**
 

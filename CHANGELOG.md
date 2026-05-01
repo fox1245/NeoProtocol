@@ -10,6 +10,33 @@ tracks the demo / server / spec evolution.
 
 ### Added
 
+- **Collaborative Workspace — Stage 2** (SPEC §17.4): cross-agent
+  ACP. User A's agent can ask User B's agent for help — the request
+  travels P2P over a second multiplexed `RTCDataChannel`
+  (`neoprotocol-acp`) on the same `RTCPeerConnection` as the
+  Workspace channel. B's UI surfaces a permission dialog with four
+  grant choices (`allow_once` / `allow_session` / `deny_once` /
+  `deny_session`); standing grants are scoped to the
+  `(remote_peer_id, remote_agent_id)` pair. On allow, B's agent
+  runs the prompt (BYOK or mock), streams reasoning back via
+  `session/update {kind: agent_message_chunk}`, and emits a terminal
+  `{kind: candidate_document}` update carrying the proposed full
+  document. A's UI renders the suggestion; on Apply, the §17.5
+  attribution stamp credits the **remote** peer/agent — the wire
+  reflects who actually authored the bytes even though the local
+  user pressed the button.
+  - `examples/cowork-poc/cross-agent.js` (~230 LOC) — ACP recursion
+    sender + receiver halves sharing one `JsonRpcChannel` per
+    channel (race-fix from PoC verification: separate channels would
+    collide on incoming frames, the empty-handlers half replying
+    "method not found" before the populated half).
+  - `examples/p2p-acp-poc/peer.js` parameterized for multi-DC mode:
+    new `dcLabels: string[]` constructor option, `labeled-channel-open` /
+    `labeled-channel-close` events, and a `peer.channel(label)` lookup.
+  - SPEC §17.4 promoted to "implemented", expanded with §17.4.1
+    shared-channel rule, §17.4.2 from/to peer-agent identity wire
+    fields, §17.4.3 streamed candidate-document update kind.
+
 - **Collaborative Workspace — Stage 1** (SPEC §17): two browsers,
   one shared Y.js document, each user has their own BYOK / mock
   agent. Edits propagate with attribution metadata

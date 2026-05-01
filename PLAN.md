@@ -21,8 +21,8 @@
 | v0.2-B real LLM decomposer | ⏳ | — |
 | v0.5 Chrome Built-in AI verified live | ⏳ (code shipped, needs flag-enabled Chrome to demo) | — |
 | **Federated Mode (SPEC §16, browser↔browser ACP-over-WebRTC)** | ✅ done | `7e22473` |
-| **Collaborative Workspace Stage 1** (CodeMirror + Y.js + per-user agent) | ✅ done | (this commit) |
-| **Collaborative Workspace Stage 2** (cross-agent ACP) | ⏳ next | — |
+| **Collaborative Workspace Stage 1** (CodeMirror + Y.js + per-user agent) | ✅ done | `78e1124` |
+| **Collaborative Workspace Stage 2** (cross-agent ACP) | ✅ done | (this commit) |
 | Workspace Stage 3 (FS Access API, multi-buffer) | ⏸ conditional | see [docs/roadmap-collaborative-workspace.md](docs/roadmap-collaborative-workspace.md) |
 | Workspace Stage 4 (local model option) | ⏸ conditional | — |
 | Workspace Stage 5 (editor surface upgrade) | ⏸ conditional | — |

@@ -30,16 +30,20 @@ function newPeerConnection(iceServers) {
 // ------------------------------------------------------------------
 
 export class SignalingPeer extends EventTarget {
-  constructor({ wsUrl, room, role, capabilities, iceServers, dcLabel }) {
+  constructor({ wsUrl, room, role, capabilities, iceServers, dcLabel, dcLabels }) {
     super();
     this.wsUrl = wsUrl;
     this.room = room;
     this.role = role;
     this.capabilities = capabilities || {};
     this.iceServers = iceServers || DEFAULT_ICE;
-    this.dcLabel = dcLabel || DEFAULT_DC_LABEL;
+    // Single label (back-compat) → single-element array. Multiple labels
+    // (Stage 2 cowork) → host opens one DC per label, driver receives
+    // them via ondatachannel and routes by label.
+    this.dcLabels = dcLabels && dcLabels.length > 0 ? dcLabels.slice() : [dcLabel || DEFAULT_DC_LABEL];
     this.pc = null;
-    this.dc = null;
+    this.dc = null;                       // primary channel (first label) — back-compat
+    this.channels = new Map();            // label → RTCDataChannel
     this.peerId = null;
     this.remotePeerId = null;
     this.ws = null;
@@ -51,13 +55,13 @@ export class SignalingPeer extends EventTarget {
     this._wirePeerEvents();
 
     if (this.role === "host") {
-      // Host pre-creates the data channel; driver receives it via
-      // ondatachannel. Either model works — we pick "host owns the
-      // channel" to keep the asymmetric ACP relationship explicit.
-      // For Cowork (SPEC §17), the same wiring is reused with a
-      // different `dcLabel` ("neoprotocol-workspace") and roles are
-      // semantically symmetric (first joiner = host).
-      this._attachDataChannel(this.pc.createDataChannel(this.dcLabel, { ordered: true }));
+      // Host pre-creates one data channel per declared label; driver
+      // receives them via ondatachannel and routes by label. For SPEC
+      // §17 Cowork Stage 2 we open both `neoprotocol-workspace` (Y.js)
+      // and `neoprotocol-acp` (cross-agent ACP) on the same RTCPeerConnection.
+      for (const label of this.dcLabels) {
+        this._attachDataChannel(this.pc.createDataChannel(label, { ordered: true }));
+      }
     } else {
       this.pc.addEventListener("datachannel", (e) => this._attachDataChannel(e.channel));
     }
@@ -66,9 +70,22 @@ export class SignalingPeer extends EventTarget {
   }
 
   _attachDataChannel(dc) {
-    this.dc = dc;
-    dc.addEventListener("open", () => this.dispatchEvent(new Event("channel-open")));
-    dc.addEventListener("close", () => this.dispatchEvent(new Event("channel-close")));
+    if (!this.channels) this.channels = new Map();
+    this.channels.set(dc.label, dc);
+    if (!this.dc) this.dc = dc;  // first attached channel is the primary (back-compat for single-channel consumers)
+    dc.addEventListener("open", () => {
+      this.dispatchEvent(new Event("channel-open"));
+      this.dispatchEvent(new CustomEvent("labeled-channel-open", { detail: { label: dc.label, channel: dc } }));
+    });
+    dc.addEventListener("close", () => {
+      this.dispatchEvent(new Event("channel-close"));
+      this.dispatchEvent(new CustomEvent("labeled-channel-close", { detail: { label: dc.label } }));
+    });
+  }
+
+  // Look up a data channel by its label (Stage 2 multi-channel mode).
+  channel(label) {
+    return this.channels && this.channels.get(label) || null;
   }
 
   _wirePeerEvents() {
@@ -254,9 +271,22 @@ export class ManualPeer extends EventTarget {
   }
 
   _attachDataChannel(dc) {
-    this.dc = dc;
-    dc.addEventListener("open", () => this.dispatchEvent(new Event("channel-open")));
-    dc.addEventListener("close", () => this.dispatchEvent(new Event("channel-close")));
+    if (!this.channels) this.channels = new Map();
+    this.channels.set(dc.label, dc);
+    if (!this.dc) this.dc = dc;  // first attached channel is the primary (back-compat for single-channel consumers)
+    dc.addEventListener("open", () => {
+      this.dispatchEvent(new Event("channel-open"));
+      this.dispatchEvent(new CustomEvent("labeled-channel-open", { detail: { label: dc.label, channel: dc } }));
+    });
+    dc.addEventListener("close", () => {
+      this.dispatchEvent(new Event("channel-close"));
+      this.dispatchEvent(new CustomEvent("labeled-channel-close", { detail: { label: dc.label } }));
+    });
+  }
+
+  // Look up a data channel by its label (Stage 2 multi-channel mode).
+  channel(label) {
+    return this.channels && this.channels.get(label) || null;
   }
 
   // Host: produce an offer URL fragment.

@@ -110,9 +110,27 @@
         </div>
         <textarea id="agent-prompt" rows="2" placeholder="e.g. Add JSDoc comments to each function"></textarea>
         <div class="row">
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;">
+            <input type="checkbox" id="ask-peer" style="margin:0">
+            Send to peer's agent (Stage 2 — cross-agent ACP, SPEC §17.4)
+          </label>
+        </div>
+        <div class="row">
           <button class="primary" id="btn-ask" disabled style="flex:1">Ask my agent</button>
           <button class="secondary" id="btn-cancel" disabled>Cancel</button>
         </div>
+      </div>
+    </div>
+
+    <!-- Cross-agent permission dialog (Stage 2) -->
+    <div id="xagent-perm-card" class="card tinted" style="display:none">
+      <h2>Permission requested</h2>
+      <div class="meta" id="xagent-perm-text"></div>
+      <div class="actions" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;">
+        <button class="primary" id="xagent-allow-once">Allow once</button>
+        <button class="secondary" id="xagent-allow-session">Allow this session</button>
+        <button class="danger" id="xagent-deny-once">Deny</button>
+        <button class="danger" id="xagent-deny-session">Deny session</button>
       </div>
     </div>
 
