@@ -69,6 +69,7 @@ Read order:
 | [`examples/spec-examples/01-email-triage`](examples/spec-examples/) | 1 | 📜 fixture | Large fan-out (200 items), three impl options per leaf (local / BYOK OpenAI / BYOK Anthropic) |
 | [`examples/spec-examples/02-pii-redact-conditional`](examples/spec-examples/) | 2 | 📜 fixture | Conditional edges with `when` predicates, T1/T3 capability split via complexity gate |
 | [`examples/spec-examples/03-clinical-scribe-interrupt`](examples/spec-examples/) | 3 | 📜 fixture | `interrupt_before` per-leaf consent, deeply chained Model B for healthcare-specific logic |
+| [`examples/p2p-acp-poc/`](examples/p2p-acp-poc/) | Federated | ✅ runnable | **Browser↔browser agents.** ACP (Zed Agent Client Protocol) over WebRTC `RTCDataChannel`. Two signaling modes: Originator-as-relay (Standard) and SDP-via-URL (zero-server Minimal). See [SPEC §16](SPEC.md) and [docs/federated-mode.md](docs/federated-mode.md) |
 
 **Runnable** = working code, end-to-end verified against the
 reference Originator. **Fixture** = JSON-only worked example,
@@ -133,9 +134,11 @@ way.
 - **v0.1**: BYOK path — user supplies own API key, leaves run via that
 - **v0.2**: real server in `server/` (Node/Python) generating graphs
   from natural-language requests via a frontier model
-- **v0.3**: capability negotiation handshake (client publishes what it
-  can run before server commits to a graph)
-- **v1**: streaming results, multi-node graphs, decline-fallback
+- **v0.3**: capability negotiation handshake + **Federated Mode**
+  (browser↔browser ACP-over-WebRTC, two signaling modes — Originator
+  rendezvous and SDP-via-URL; SPEC §16)
+- **v1**: streaming results, multi-node graphs, decline-fallback,
+  TURN policy + room auth tokens for Federated Mode
 - **future**: NeoGraph WASM runtime as drop-in reference engine
   (replaces ad-hoc JS leaf executor with the full graph engine)
 

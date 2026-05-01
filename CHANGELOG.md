@@ -8,6 +8,29 @@ tracks the demo / server / spec evolution.
 
 ## [Unreleased]
 
+### Added
+
+- **Federated Mode** — browser↔browser ACP-over-WebRTC. Two peers
+  establish a P2P `RTCDataChannel` and exchange the Zed Agent Client
+  Protocol wire format (JSON-RPC 2.0, NDJSON-style framing) over it.
+  - SPEC §16: Federated Mode wire spec — Standard Mode
+    (Originator-as-signaling) + Minimal Mode (SDP-via-URL, zero
+    runtime server); cross-network ACP safety profile (Virtual Path
+    namespace `np://session/<id>/<key>`, mandatory permission gate
+    on every `fs/*` callback, DTLS fingerprint surfacing).
+  - `server/signaling.js` — WebSocket `/signaling` endpoint on the
+    Originator, dumb relay (forwards opaque SDP/ICE between paired
+    peers, never inspects ACP traffic).
+  - `examples/p2p-acp-poc/` — runnable reference implementation. ~1200
+    LOC, ~600 of which is pure protocol; agent is a deterministic
+    mock summarizer (offline, no model dependency).
+  - `docs/federated-mode.md` — design rationale, trust roles, reasons
+    ACP was chosen over A2A, what the implementation deliberately
+    doesn't do.
+  - SPEC §3 glossary additions (Federated Mode, Driver, Host,
+    Signaling, Virtual Path); §12 error code taxonomy gains SIG-* and
+    FED-* families.
+
 ## v0.3 — 2026-04-27
 
 Spec graduates from "single-leaf draft" to "multi-leaf-ready". Adds

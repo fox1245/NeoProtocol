@@ -53,6 +53,13 @@ jobs:
         working-directory: server
         run: npm run smoke
 
+      - name: Federated Mode signaling relay smoke
+        working-directory: server
+        run: node signaling_smoke.js
+
+      - name: Federated Mode Virtual Path enforcement (SPEC §16.4.1)
+        run: node examples/p2p-acp-poc/test_virtual_path.js
+
       - name: Install conformance suite dependencies
         working-directory: conformance
         run: pip install -r requirements.txt

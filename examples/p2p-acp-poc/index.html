@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>NeoProtocol Federated Mode PoC — Browser↔Browser ACP over WebRTC</title>
+<style>
+  :root {
+    --bg: #fafafa; --fg: #1a1a1a; --muted: #666;
+    --accent: #2962ff; --accent-hover: #1d4fd8; --danger: #b00020;
+    --border: #e0e0e0; --code-bg: #f3f3f3;
+    --pos: #2e7d32; --warn: #f57c00; --neg: #c62828;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    background: var(--bg); color: var(--fg);
+    max-width: 920px; margin: 0 auto; padding: 32px 24px; line-height: 1.5;
+  }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 14px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 24px 0 8px; }
+  .lead { color: var(--muted); margin: 0 0 20px; font-size: 14px; }
+  .card { background: white; border: 1px solid var(--border); border-radius: 8px; padding: 16px 18px; margin: 10px 0; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  label { font-size: 13px; color: var(--muted); }
+  select, input[type=text], textarea {
+    border: 1px solid var(--border); border-radius: 6px; padding: 7px 10px;
+    font-family: inherit; font-size: 13px; background: white;
+  }
+  textarea { width: 100%; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; }
+  .actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  button { border: 0; border-radius: 6px; padding: 9px 14px; font-size: 13px; font-weight: 500; cursor: pointer; }
+  button.primary { background: var(--accent); color: white; }
+  button.primary:hover { background: var(--accent-hover); }
+  button.secondary { background: #e8e8e8; }
+  button.danger { background: #f5e0e0; color: var(--danger); }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  .pill {
+    display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px;
+    font-weight: 600; background: var(--code-bg); color: var(--muted);
+  }
+  .pill.connected { background: #e3f7e8; color: var(--pos); }
+  .pill.connecting { background: #e3f2fd; color: var(--accent); }
+  .pill.failed { background: #ffebee; color: var(--neg); }
+  pre { background: var(--code-bg); border-radius: 6px; padding: 12px; overflow-x: auto; font-size: 12px; line-height: 1.45; border: 1px solid var(--border); white-space: pre-wrap; word-break: break-word; }
+  .log { max-height: 240px; overflow-y: auto; background: #1a1a1a; color: #d0d0d0; font-family: ui-monospace, monospace; font-size: 11px; padding: 10px 12px; border-radius: 6px; }
+  .log .l-host { color: #80cbc4; }
+  .log .l-driver { color: #ffcc80; }
+  .log .l-sys { color: #b39ddb; }
+  .url-blob { font-family: ui-monospace, monospace; font-size: 11px; word-break: break-all; padding: 8px; background: var(--code-bg); border-radius: 4px; max-height: 100px; overflow-y: auto; }
+  .hidden { display: none !important; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 700px) { .grid2 { grid-template-columns: 1fr; } }
+  .stream { min-height: 60px; padding: 10px 12px; background: white; border: 1px solid var(--border); border-radius: 6px; font-family: ui-monospace, monospace; font-size: 13px; white-space: pre-wrap; }
+  .perm-banner { background: #fff3e0; border: 1px solid #ffcc80; padding: 10px 12px; border-radius: 6px; margin: 10px 0; }
+  .meta { font-size: 12px; color: var(--muted); }
+  details summary { cursor: pointer; font-size: 13px; color: var(--muted); padding: 6px 0; }
+  details[open] summary { color: var(--fg); }
+</style>
+</head>
+<body>
+
+<h1>NeoProtocol Federated Mode — PoC</h1>
+<p class="lead">
+  Two browsers run agents and talk to each other over a P2P WebRTC
+  data channel using the <strong>ACP</strong> wire format (Zed Agent
+  Client Protocol — JSON-RPC 2.0, NDJSON-style). Either signal
+  through the Originator (Standard Mode) or via a copy-pasted URL
+  (Minimal Mode, zero runtime server). See
+  <a href="../../SPEC.md">SPEC §16</a> and
+  <a href="../../docs/federated-mode.md">docs/federated-mode.md</a>
+  for the full design + cross-network safety profile.
+</p>
+
+<!-- ============================================================= -->
+<!-- SETUP                                                         -->
+<!-- ============================================================= -->
+
+<div class="card">
+  <h2>Setup</h2>
+  <div class="row">
+    <label>Role:</label>
+    <select id="role">
+      <option value="host">Host (runs the agent)</option>
+      <option value="driver">Driver (sends prompts)</option>
+    </select>
+    <label>Mode:</label>
+    <select id="mode">
+      <option value="standard">Standard — Originator signaling</option>
+      <option value="manual">Minimal — SDP via URL (no server)</option>
+    </select>
+    <label>Connection:</label>
+    <span id="conn-state" class="pill">idle</span>
+  </div>
+</div>
+
+<!-- ============================================================= -->
+<!-- STANDARD MODE                                                 -->
+<!-- ============================================================= -->
+
+<div id="block-standard" class="card">
+  <h2>Standard Mode — Originator signaling</h2>
+  <div class="row">
+    <label>Signaling URL:</label>
+    <input type="text" id="ws-url" value="ws://localhost:3001/signaling" size="40">
+    <label>Room:</label>
+    <input type="text" id="room" value="demo-room" size="14">
+  </div>
+  <div class="meta">Both peers must use the same room ID. Originator sees only opaque SDP+ICE; ACP traffic is e2e DTLS.</div>
+  <div class="actions">
+    <button class="primary" id="btn-std-start">Connect</button>
+    <button class="secondary" id="btn-std-disconnect" disabled>Disconnect</button>
+  </div>
+</div>
+
+<!-- ============================================================= -->
+<!-- MANUAL MODE                                                   -->
+<!-- ============================================================= -->
+
+<div id="block-manual" class="card hidden">
+  <h2>Minimal Mode — SDP via URL</h2>
+  <div class="meta">Zero runtime server. Copy/paste URL fragments out-of-band (chat, email, QR).</div>
+
+  <div id="manual-host" class="hidden">
+    <p><strong>Step 1.</strong> Generate offer URL.</p>
+    <div class="actions"><button class="primary" id="btn-mk-offer">Create offer URL</button></div>
+    <div class="meta" style="margin-top:8px;">Offer URL (share this with the driver):</div>
+    <div class="url-blob" id="offer-url">—</div>
+    <p style="margin-top:14px;"><strong>Step 3.</strong> Paste the answer URL the driver sends back:</p>
+    <textarea id="answer-paste" rows="3" placeholder="https://...#answer=..."></textarea>
+    <div class="actions"><button class="secondary" id="btn-consume-answer">Connect using answer</button></div>
+  </div>
+
+  <div id="manual-driver" class="hidden">
+    <p><strong>Step 2.</strong> Paste the offer URL the host sent you:</p>
+    <textarea id="offer-paste" rows="3" placeholder="https://...#offer=..."></textarea>
+    <div class="actions"><button class="primary" id="btn-mk-answer">Generate answer URL</button></div>
+    <div class="meta" style="margin-top:8px;">Answer URL (send this back to the host):</div>
+    <div class="url-blob" id="answer-url">—</div>
+  </div>
+</div>
+
+<!-- ============================================================= -->
+<!-- HOST PANEL                                                    -->
+<!-- ============================================================= -->
+
+<div id="panel-host" class="card hidden">
+  <h2>Host — running agent</h2>
+  <div class="meta">Agent: deterministic mock summarizer. On each prompt it pulls a virtual document from the driver via <code>fs/read_text_file</code>, then streams a summary back via <code>session/update</code>.</div>
+  <div class="meta" id="host-conn-meta">Waiting for driver…</div>
+</div>
+
+<!-- ============================================================= -->
+<!-- DRIVER PANEL                                                  -->
+<!-- ============================================================= -->
+
+<div id="panel-driver" class="card hidden">
+  <h2>Driver — your prompts</h2>
+  <div class="row">
+    <label>Virtual doc <code>np://session/&lt;id&gt;/notes.txt</code>:</label>
+  </div>
+  <textarea id="virt-doc" rows="4">NeoProtocol decomposes a user request into a Task Offer graph and ships it to a willing executor with explicit consent. Raw data stays client-side. The Originator sees only what data_locality.returns_to_originator whitelists. Federated Mode adds peer-to-peer leaf coordination over WebRTC, while preserving the Originator's role as decomposer and signaling rendezvous.</textarea>
+  <div class="row" style="margin-top:10px;">
+    <input type="text" id="prompt" placeholder="e.g. summarize the document" style="flex:1; min-width: 280px;">
+    <button class="primary" id="btn-prompt" disabled>Send prompt</button>
+  </div>
+
+  <div id="perm-host" class="hidden"></div>
+
+  <h2>Stream</h2>
+  <div class="stream" id="stream">(awaiting agent response)</div>
+</div>
+
+<!-- ============================================================= -->
+<!-- LOG                                                           -->
+<!-- ============================================================= -->
+
+<details open>
+  <summary>RPC log</summary>
+  <div class="log" id="log"></div>
+</details>
+
+<p class="meta" style="margin-top:24px;">
+  Tip: open this page in two tabs (or two browsers / two machines on
+  the same LAN). Pick <em>Host</em> in one and <em>Driver</em> in the
+  other. Use the same room name (Standard Mode) or copy-paste the URLs
+  (Minimal Mode).
+</p>
+
+<script type="module" src="./app.js"></script>
+</body>
+</html>

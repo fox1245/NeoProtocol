@@ -11,11 +11,13 @@
 
 import express from "express";
 import cors from "cors";
+import http from "node:http";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { decompose } from "./decomposer.js";
 import { validateOffer, validateEnvelope, formatErrors } from "./validator.js";
+import { attachSignaling } from "./signaling.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -26,8 +28,16 @@ app.use(express.json({ limit: "2mb" }));
 // task_id → { offer, result, createdAt }
 const tasks = new Map();
 
+// Filled in below after we attach the signaling WSS to the HTTP server.
+let signalingStats = null;
+
 app.get("/healthz", (_req, res) => {
-  res.json({ ok: true, protocol: "neoprotocol/0", tasks: tasks.size });
+  res.json({
+    ok: true,
+    protocol: "neoprotocol/0",
+    tasks: tasks.size,
+    signaling: signalingStats ? signalingStats.stats() : null
+  });
 });
 
 app.post("/tasks", async (req, res) => {
@@ -122,11 +132,14 @@ app.post("/tasks/:id/results", (req, res) => {
 });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => {
-  console.log(`NeoProtocol server v0.2 listening on http://localhost:${PORT}`);
+const httpServer = http.createServer(app);
+signalingStats = attachSignaling(httpServer, { path: "/signaling" });
+httpServer.listen(PORT, () => {
+  console.log(`NeoProtocol server v0.3 listening on http://localhost:${PORT}`);
   console.log(`  POST   /tasks                 — submit prompt → get Task Offer`);
   console.log(`  GET    /tasks/:id             — task metadata`);
   console.log(`  GET    /tasks/:id/data        — fetch input data`);
   console.log(`  POST   /tasks/:id/results     — submit Result Envelope`);
+  console.log(`  WS     /signaling             — Federated Mode rendezvous (SPEC §16)`);
   console.log(`  GET    /healthz               — liveness`);
 });

@@ -29,6 +29,13 @@ extensions, not version forks. An Executor declares its maximum level
 in the Capability Statement (§9); the Originator MUST NOT emit offers
 exceeding the declared level.
 
+> **Note.** Federated Mode (§16) is **orthogonal** to conformance
+> levels. A peer at any Level 0–3 MAY participate in Federated Mode;
+> Federated Mode just changes how leaves get distributed across two
+> or more Executors. The Task Offer / Result Envelope contracts
+> (§§6, 10) are unchanged — only the transport between Executors
+> changes.
+
 ### Level 0 — Single-Leaf
 - `graph.nodes` has exactly 1 leaf node, `graph.edges` is `[]`
 - One consent gate (offer-level)
@@ -81,6 +88,11 @@ exceeding the declared level.
 | **Conformance Level** | 0–3 capability tier per §2. Executor declares; Originator respects. |
 | **Consent gate** | UI surface where the End User accepts/declines/amends an offer or interrupt. |
 | **Data locality** | Field in the offer that constrains what may leave the Executor. (§6.2) |
+| **Federated Mode** | Two or more Executors cooperating on the same Task Offer over P2P transport. See §16. |
+| **Driver** | In Federated Mode: the Executor playing the ACP "client" role — sends `session/prompt`, owns virtual data. (§16.3) |
+| **Host** | In Federated Mode: the Executor playing the ACP "agent" role — runs the leaves, receives prompts, may issue `fs/*` callbacks. (§16.3) |
+| **Signaling** | Out-of-band rendezvous channel used to exchange WebRTC SDP + ICE before the P2P data channel exists. (§16.2) |
+| **Virtual Path** | `np://session/<id>/<key>` namespace used in `fs/*` callbacks. Never maps to a real filesystem. (§16.4.1) |
 
 ---
 
@@ -544,6 +556,8 @@ or `status: "failed"` MUST include both `reason_code` (machine) and
 - **OR-1xx** — Originator-side reception errors (used in HTTP error responses, not envelopes)
 - **OR-2xx** — Originator-side validation errors (offer rejected)
 - **PR-1xx** — Protocol-level errors (version, capability mismatch)
+- **SIG-xxx** — Signaling errors (Federated Mode, §16). Reuses HTTP-style 4xx digits.
+- **FED-xxx** — Federated Mode application errors (Virtual Path, permission, scope).
 
 ### 12.2 Defined codes
 
@@ -569,6 +583,16 @@ or `status: "failed"` MUST include both `reason_code` (machine) and
 | PR-101 | `protocol_version_unsupported` | Major version mismatch between peers |
 | PR-102 | `capability_exceeded` | Offer exceeds declared Executor capability |
 | PR-103 | `level_unsupported` | Offer requires conformance level above declared |
+| SIG-400 | `bad_signaling_frame` | Malformed signaling frame (§16.2) |
+| SIG-401 | `not_joined` | Signaling op attempted before `join` |
+| SIG-404 | `peer_not_found` | Signaling target peer ID unknown in room |
+| SIG-409 | `room_state_conflict` | Already joined, or peer ID collision |
+| SIG-413 | `signaling_frame_too_large` | Frame exceeds the 1 MiB cap |
+| SIG-429 | `room_full` | Room peer cap reached |
+| FED-001 | `path_not_virtual` | `fs/*` path not in `np://session/...` namespace (§16.4.1) |
+| FED-002 | `path_out_of_scope` | Virtual Path session ID does not match active session |
+| FED-003 | `permission_denied` | Driver / End User denied the `fs/*` or tool-call request |
+| FED-004 | `session_not_found` | `session/prompt` or callback referenced an unknown sessionId |
 
 New codes added in subsequent spec versions retain numbers (no reuse
 of retired codes).
@@ -671,6 +695,258 @@ Items previously in this list and now in scope:
 - BYOK model option (shipped v0.1)
 - Multi-node graph composition (§7)
 - Per-leaf consent gating (§7.5)
+- Browser↔browser P2P agent coordination (§16, Federated Mode)
+
+---
+
+## 16. Federated Mode
+
+> **Status: v0.3 draft.** Reference implementation in
+> `examples/p2p-acp-poc/`, Originator signaling endpoint shipped in
+> `server/signaling.js`. The wire format is stable for the PoC, but
+> may grow before v1 (rooms scoped by Originator, ICE TURN policy,
+> resumption tokens for tab close).
+
+Federated Mode lets two or more Executors cooperate on a single Task
+Offer by establishing a peer-to-peer data channel between their
+browsers and exchanging the **ACP wire format** (Zed Agent Client
+Protocol, JSON-RPC 2.0, NDJSON-style framing) over it. The Originator
+is unchanged in its role as decomposer; it gains an optional
+**signaling rendezvous** responsibility but never inspects ACP
+traffic. Once peers have exchanged SDP + ICE, the Originator drops
+out and ACP frames flow e2e over DTLS-protected SCTP.
+
+### 16.1 Why ACP
+
+The cross-browser problem is structurally **bidirectional with
+permission gating**: peers need to ask each other for data and
+authorization, not just submit and poll. A2A's task-lifecycle model
+(submit → poll → fetch) is one-directional; ACP's `fs/*` and
+`session/request_permission` callbacks are first-class
+bidirectional, and the consent semantics line up with NeoProtocol's
+existing per-leaf consent gates (§7.5). NDJSON line framing also
+maps 1:1 to WebRTC `RTCDataChannel.send()` because SCTP preserves
+message boundaries — no reassembly layer required.
+
+The reference implementation reuses `neograph::acp` (NeoGraph's full
+ACP server, including the StopReason 5-value Zed-conformant enum)
+verbatim as the wire-format reference; only the transport layer is
+re-implemented in JS to ride WebRTC.
+
+### 16.2 Signaling — two modes, same data plane
+
+A peer MUST support at least one of these two signaling modes; SHOULD
+support both for interoperability.
+
+#### 16.2.1 Standard Mode — Originator-as-signaling
+
+The Originator exposes a WebSocket endpoint (default path
+`/signaling`) that acts as a **dumb relay**: it forwards opaque
+payloads (SDP and ICE candidates) between paired peers in the same
+room. The Originator never parses these payloads.
+
+```
+client → server                       server → client
+{ kind: "join",                       { kind: "joined",
+  room: "<id>",                         peer_id: "<self>",
+  role: "host"|"driver",                peers: [{id,role,capabilities},...] }
+  capabilities?: {...} }              { kind: "peer_joined", peer: {...} }
+{ kind: "signal", to: "<peer_id>",    { kind: "signal", from: "<peer_id>",
+  payload: <opaque> }                   payload: <opaque> }
+{ kind: "leave" }                     { kind: "peer_left", peer_id: "<id>" }
+                                      { kind: "error", code: "...", reason: "..." }
+```
+
+Caps:
+- 1 MiB max signaling frame (`SIG-413`).
+- 8 peers max per room (`SIG-429`); v1 may raise.
+- Rooms are ephemeral and unauthenticated in v0.3; v1 adds room
+  tokens and rate limits.
+
+#### 16.2.2 Minimal Mode — SDP via URL
+
+Zero runtime server. Each peer waits for ICE gathering to complete
+(non-trickle), then encodes the full SDP into a base64url URL hash
+fragment and shares it over any out-of-band channel (chat, email,
+QR). The other peer pastes the URL, generates the answer, and the
+originating peer pastes the answer URL back.
+
+```
+host:    createOffer → setLocalDescription → wait ICE complete
+         → URL = <pageUrl>#offer=<base64url(sdp)>
+driver:  paste offer URL → setRemoteDescription → createAnswer
+         → setLocalDescription → wait ICE complete
+         → URL = <pageUrl>#answer=<base64url(sdp)>
+host:    paste answer URL → setRemoteDescription → connection up
+```
+
+Conformance note: a peer that supports only Minimal Mode is still a
+conformant Federated Mode peer. The `signaling_modes` capability
+declares which modes are supported (§16.5).
+
+### 16.3 Roles and the data plane
+
+Within a Federated session:
+
+- **Host** — the peer running the agent. Implements ACP **agent**
+  responsibilities (`initialize`, `session/new`, `session/prompt`,
+  `session/cancel`). MAY issue callbacks: `fs/read_text_file`,
+  `fs/write_text_file`, `session/request_permission`. Host pre-creates
+  the `RTCDataChannel` (label `neoprotocol-acp`, ordered, reliable).
+
+- **Driver** — the peer initiating prompts. Implements ACP **client**
+  responsibilities. Owns the End User. MUST gate every `fs/*` and
+  `session/request_permission` callback through a UI consent surface
+  (§11 applies). Receives the data channel via `ondatachannel`.
+
+- **Originator** — only present in Standard Mode, only for signaling.
+  Never has access to the ACP data plane.
+
+The data channel MUST be ordered + reliable. The label
+`neoprotocol-acp` is the rendezvous identifier; alternative labels
+are reserved for future protocol variants.
+
+### 16.4 Cross-network ACP safety profile
+
+Stock ACP was designed for IDE-agent co-location (Zed editor spawning
+a local agent subprocess). Several callbacks — particularly `fs/*` —
+trust the client's filesystem boundaries. Across the network, those
+boundaries vanish. This subsection defines the hardening required
+when ACP rides Federated Mode.
+
+#### 16.4.1 Virtual Path namespace (MUST)
+
+In Federated Mode, **all `fs/*` paths MUST be Virtual Paths** of the
+form:
+
+```
+np://session/<sessionId>/<key>[/<key>...]
+```
+
+Where `<sessionId>` is the value returned by `session/new` and
+`<key>` segments are application-defined. The driver MUST reject any
+`fs/*` request whose path:
+- is not a string starting with `np://session/`, or
+- contains a `..` segment, or
+- has a session segment that does not match the active sessionId.
+
+Rejection codes: `FED-001` (not virtual) or `FED-002` (out of scope).
+
+The driver maintains an in-memory map of `(virtualPath → contents)`
+and serves `fs/read_text_file` from it. Mapping a Virtual Path to a
+real file (e.g., to forward the user's actual document) is a driver
+implementation choice and outside the protocol — but the wire MUST
+NEVER carry a real path.
+
+#### 16.4.2 Permission gate (MUST)
+
+Every callback from host → driver that reads or writes data
+(`fs/read_text_file`, `fs/write_text_file`, future tool-call requests)
+MUST go through a fresh permission UI surface unless the driver has
+declared a per-path standing grant for the active session. The
+permission surface MUST display:
+- the Virtual Path being requested,
+- the operation kind (read / write / tool-call),
+- the host peer's identity (peer_id + capability statement summary).
+
+Denial returns `FED-003` (permission_denied).
+
+#### 16.4.3 DTLS fingerprint surfacing (SHOULD)
+
+To allow the End User to detect MITM on the signaling channel, the
+driver UI SHOULD display the host's DTLS certificate fingerprint
+(extracted from the SDP `a=fingerprint:` line). End Users who wish
+strong assurance can compare fingerprints out-of-band.
+
+#### 16.4.4 Capability statement bound (MUST)
+
+When acting as host in Federated Mode, the executor's Capability
+Statement (§9) MUST faithfully describe what the agent will do.
+Misrepresentation by the host gives the driver no recourse beyond
+disconnecting; v1 MAY add signed Capability Statements for
+attestation.
+
+### 16.5 Capability Statement extensions
+
+Federated Mode adds an optional `federated` block to the §9 capability
+statement:
+
+```jsonc
+{
+  "capabilities": {
+    "federated": {
+      "spec_version": "neoprotocol/0.3",
+      "signaling_modes": ["standard", "manual"],
+      "role": "host" | "driver" | "both",
+      "ice_servers_self_provided": false,    // peer needs us to supply STUN/TURN?
+      "max_concurrent_sessions": 4,
+      "fs_callbacks": {
+        "read_text_file":  true,
+        "write_text_file": false
+      }
+    }
+  }
+}
+```
+
+A peer that does NOT include `capabilities.federated` is implicitly a
+non-federated Executor (Levels 0–3 monolithic).
+
+### 16.6 Lifecycle
+
+```
+SIGNALING                                      DATA PLANE
+─────────                                      ──────────
+host  ─ join(room=R, role=host) ──► relay
+driver ─ join(room=R, role=driver) ─► relay
+relay  ─ peer_joined(host) ──► driver
+relay  ─ peer_joined(driver) ──► host
+host  ─ signal(SDP offer)  ─────► driver       (RTCPeerConnection
+driver ─ signal(SDP answer) ────► host          handshake in progress)
+host/driver ─ signal(ICE) ◄─────► driver/host
+                                               DTLS handshake → DataChannel open
+                                               ──────────────────────────────────
+                                               driver → initialize
+                                               driver ◄ {protocolVersion, agentCapabilities}
+                                               driver → session/new
+                                               driver ◄ {sessionId}
+                                               driver → session/prompt {sessionId, prompt}
+                                                 host  → fs/read_text_file
+                                                         {path: "np://session/.../doc"}
+                                                 driver shows permission UI
+                                                 driver ◄ {content}
+                                                 host  ↛ session/update {agent_message_chunk}
+                                                       ↛ session/update {agent_message_chunk}
+                                                       ↛ ...
+                                               driver ◄ {stopReason: "end_turn"}
+                                               (or: driver → session/cancel)
+                                               ──────────────────────────────────
+either side ─ leave / close
+```
+
+### 16.7 Reliability
+
+- Signaling reconnect: if the signaling WebSocket drops **after**
+  `RTCDataChannel` is open, the data plane is unaffected — peers
+  MUST continue ACP traffic and not require the signaling channel.
+- Data channel close: peers SHOULD treat data channel close as
+  session termination. Resumption across data channel reconnect is
+  out of scope for v0.3 (deferred to v1, alongside §13.5
+  cancellation tokens).
+- Session timeout: drivers SHOULD bound `session/prompt` round trips
+  with a wall-clock timeout. A timed-out session SHOULD issue
+  `session/cancel` before disconnecting.
+
+### 16.8 Out of scope (v0.3 → v1)
+
+| Item | When | Notes |
+|---|---|---|
+| TURN policy | v1 | v0.3 = STUN only. Symmetric NAT cases fall back to Minimal Mode. |
+| Room auth tokens | v1 | v0.3 rooms are unauthenticated (private deployment). |
+| Resumption across DC reconnect | v1 | Tied to §13.5. |
+| Signed Capability Statements | v2 | Cross-org attestation. |
+| Multi-host fan-out (1 driver → N hosts) | v1 | Wire spec already supports it; reference impl is 1:1 only. |
+| MCP-server passthrough | v1 | `mcpServers` field of `session/new` is reserved. |
 
 ---
 
@@ -680,4 +956,5 @@ Items previously in this list and now in scope:
 |---|---|---|
 | v0 init | §1, §5 (flow), §6 (offer), §10 (envelope), §11 (consent), §14 (versioning), §15 (deferred) | `26dd8e8` |
 | v0.3 draft I | §2 conformance levels, §7 graph semantics, §8 impl models, §9 capability statement | `7265e66` |
-| v0.3 draft II | §3 glossary, §4 transport, §5 expanded sequence diagrams, §12 error code taxonomy, §13 reliability | this commit |
+| v0.3 draft II | §3 glossary, §4 transport, §5 expanded sequence diagrams, §12 error code taxonomy, §13 reliability | `11bb7de` |
+| v0.3 draft III | §16 Federated Mode (ACP-over-WebRTC; Standard + Minimal signaling; Virtual Path safety profile); §3 glossary entries; §12 SIG/FED codes; §2 federated-orthogonality note | this commit |
