@@ -52,7 +52,7 @@ criterion (external users) needs the social path that public release
 unlocks.
 
 Read order:
-- [SPEC.md](SPEC.md) — protocol specification (16 sections + appendix)
+- [SPEC.md](SPEC.md) — protocol specification (17 sections + appendix)
 - [PLAN.md](PLAN.md) — milestone roadmap with status table
 - [docs/federated-mode.md](docs/federated-mode.md) — design + cross-network safety profile for §16
 - [docs/roadmap-collaborative-workspace.md](docs/roadmap-collaborative-workspace.md) — vision document: how Federated Mode evolves into browser-native multi-user multi-agent coding
@@ -72,6 +72,7 @@ Read order:
 | [`examples/spec-examples/02-pii-redact-conditional`](examples/spec-examples/) | 2 | 📜 fixture | Conditional edges with `when` predicates, T1/T3 capability split via complexity gate |
 | [`examples/spec-examples/03-clinical-scribe-interrupt`](examples/spec-examples/) | 3 | 📜 fixture | `interrupt_before` per-leaf consent, deeply chained Model B for healthcare-specific logic |
 | [`examples/p2p-acp-poc/`](examples/p2p-acp-poc/) | Federated | ✅ runnable | **Browser↔browser agents.** ACP (Zed Agent Client Protocol) over WebRTC `RTCDataChannel`. Two signaling modes: Originator-as-relay (Standard) and SDP-via-URL (zero-server Minimal). See [SPEC §16](SPEC.md) and [docs/federated-mode.md](docs/federated-mode.md) |
+| [`examples/cowork-poc/`](examples/cowork-poc/) | Workspace Stage 1 | ✅ runnable | **Two browsers, one document, two agents.** Y.js CRDT over the same WebRTC data channel as Federated Mode. CodeMirror 6 editor with live remote cursors. Each user has a BYOK (Anthropic) or offline-mock agent. Edit attribution travels with each apply. See [SPEC §17](SPEC.md) and [roadmap](docs/roadmap-collaborative-workspace.md) |
 
 **Runnable** = working code, end-to-end verified against the
 reference Originator. **Fixture** = JSON-only worked example,

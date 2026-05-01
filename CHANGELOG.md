@@ -10,6 +10,24 @@ tracks the demo / server / spec evolution.
 
 ### Added
 
+- **Collaborative Workspace — Stage 1** (SPEC §17): two browsers,
+  one shared Y.js document, each user has their own BYOK / mock
+  agent. Edits propagate with attribution metadata
+  (`{agentId, peerId}`) so peer UIs distinguish human vs agent edits.
+  Reuses the §16 Federated Mode signaling + WebRTC peer; the
+  Workspace channel rides a second `RTCDataChannel` (label
+  `neoprotocol-workspace`) multiplexed on the same `RTCPeerConnection`.
+  - `examples/cowork-poc/` — runnable reference (CodeMirror 6 + Y.js
+    + `yCollab`, ~750 LOC)
+  - SPEC §17 first draft — Coworker role, Workspace channel framing,
+    first-joiner seed rule, attribution metadata, Stage-2 cross-agent
+    permission grant variants (spec only — Stage 2 impl follows)
+  - PoC verification caught and pinned a CRDT seed-collision race
+    (both peers seeding in parallel produced a doubled document); the
+    fix is now in SPEC §17.2.2.
+  - `examples/p2p-acp-poc/peer.js` parameterized — `dcLabel`
+    constructor option so future demos can multiplex more channels
+
 - **Federated Mode** — browser↔browser ACP-over-WebRTC. Two peers
   establish a P2P `RTCDataChannel` and exchange the Zed Agent Client
   Protocol wire format (JSON-RPC 2.0, NDJSON-style framing) over it.

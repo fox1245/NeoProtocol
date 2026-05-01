@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>NeoProtocol Cowork — Stage 1 PoC</title>
+<style>
+  :root {
+    --bg: #fafafa; --fg: #1a1a1a; --muted: #666;
+    --accent: #2962ff; --accent-hover: #1d4fd8; --danger: #b00020;
+    --border: #e0e0e0; --code-bg: #f3f3f3;
+    --pos: #2e7d32; --warn: #f57c00; --neg: #c62828;
+    --agent-tint: #fff3e0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    background: var(--bg); color: var(--fg);
+    margin: 0; padding: 0; height: 100vh; display: flex; flex-direction: column;
+  }
+  header {
+    background: white; border-bottom: 1px solid var(--border);
+    padding: 10px 18px; display: flex; gap: 14px; align-items: center; flex-wrap: wrap;
+  }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  header .lead { color: var(--muted); font-size: 12px; margin: 0; }
+  .pill {
+    display: inline-block; padding: 2px 10px; border-radius: 11px; font-size: 11px;
+    font-weight: 600; background: var(--code-bg); color: var(--muted);
+  }
+  .pill.connected { background: #e3f7e8; color: var(--pos); }
+  .pill.connecting { background: #e3f2fd; color: var(--accent); }
+  .pill.failed { background: #ffebee; color: var(--neg); }
+  label { font-size: 12px; color: var(--muted); }
+  input[type=text], input[type=password], textarea, select {
+    border: 1px solid var(--border); border-radius: 5px; padding: 5px 8px;
+    font-family: inherit; font-size: 12px; background: white;
+  }
+  textarea { width: 100%; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; }
+  button { border: 0; border-radius: 5px; padding: 6px 12px; font-size: 12px; font-weight: 500; cursor: pointer; }
+  button.primary { background: var(--accent); color: white; }
+  button.primary:hover { background: var(--accent-hover); }
+  button.secondary { background: #e8e8e8; }
+  button.danger { background: #f5e0e0; color: var(--danger); }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+  main { flex: 1; display: grid; grid-template-columns: 1fr 380px; min-height: 0; }
+  #editor-pane { background: white; overflow: auto; min-width: 0; }
+  #editor-pane .cm-editor { height: 100%; font-size: 13px; }
+  #side {
+    border-left: 1px solid var(--border); background: white; padding: 14px;
+    display: flex; flex-direction: column; gap: 12px; overflow-y: auto;
+  }
+  #side h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 0 0 6px; font-weight: 600; }
+  .card { border: 1px solid var(--border); border-radius: 7px; padding: 10px 12px; }
+  .card.tinted { background: var(--agent-tint); border-color: #ffcc80; }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .stack { display: flex; flex-direction: column; gap: 6px; }
+  .meta { font-size: 11px; color: var(--muted); line-height: 1.4; }
+  pre.diff { font-family: ui-monospace, monospace; font-size: 11px; padding: 8px; background: var(--code-bg); border-radius: 4px; max-height: 220px; overflow: auto; line-height: 1.4; }
+  pre.diff .add { background: #e8f5e9; color: var(--pos); display: block; }
+  pre.diff .del { background: #ffebee; color: var(--neg); display: block; }
+  .log { font-family: ui-monospace, monospace; font-size: 11px; color: var(--muted); max-height: 140px; overflow-y: auto; background: #1a1a1a; color: #d0d0d0; padding: 8px; border-radius: 4px; }
+  .log .l-sys { color: #b39ddb; }
+  .log .l-agent { color: #ffcc80; }
+  .log .l-peer { color: #80cbc4; }
+  .toast {
+    position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
+    background: var(--agent-tint); border: 1px solid #ffcc80; color: #b25c00;
+    padding: 8px 14px; border-radius: 6px; font-size: 13px; box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+    opacity: 0; transition: opacity 0.4s;
+  }
+  .toast.show { opacity: 1; }
+  /* y-codemirror.next gives every remote cursor a username flag — we
+     just style it. */
+  .cm-ySelection {}
+  .cm-ySelectionInfo { font-size: 10px !important; padding: 1px 4px !important; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Cowork — NeoProtocol Stage 1</h1>
+  <span class="meta">Two browsers · one Y.js doc · per-user agent</span>
+  <span style="flex:1"></span>
+  <label>Name <input type="text" id="display-name" size="10" value=""></label>
+  <label>Room <input type="text" id="room" size="12" value="cowork-demo"></label>
+  <label>Signal <input type="text" id="ws-url" size="34" value="ws://localhost:3001/signaling"></label>
+  <button class="primary" id="btn-join">Join</button>
+  <button class="secondary" id="btn-leave" disabled>Leave</button>
+  <span id="conn-state" class="pill">idle</span>
+</header>
+
+<main>
+  <div id="editor-pane"></div>
+
+  <aside id="side">
+    <div>
+      <h2>Your agent (BYOK)</h2>
+      <div class="card stack">
+        <div class="row">
+          <select id="agent-mode" style="flex:1">
+            <option value="anthropic">Anthropic — claude-sonnet-4-6</option>
+            <option value="mock">Mock (offline; for testing)</option>
+          </select>
+        </div>
+        <input type="password" id="api-key" placeholder="sk-ant-... (sessionStorage only)">
+        <div class="meta">
+          API key stays in this browser's <code>sessionStorage</code>. Never sent to the
+          Originator, never sent to the peer.
+        </div>
+        <textarea id="agent-prompt" rows="2" placeholder="e.g. Add JSDoc comments to each function"></textarea>
+        <div class="row">
+          <button class="primary" id="btn-ask" disabled style="flex:1">Ask my agent</button>
+          <button class="secondary" id="btn-cancel" disabled>Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="suggestion-card" class="card tinted" style="display:none">
+      <h2>Agent suggestion</h2>
+      <div class="meta" id="suggestion-reasoning"></div>
+      <pre class="diff" id="suggestion-diff"></pre>
+      <div class="row" style="margin-top:8px">
+        <button class="primary" id="btn-apply" style="flex:1">Apply</button>
+        <button class="secondary" id="btn-discard">Discard</button>
+      </div>
+    </div>
+
+    <div>
+      <h2>Activity</h2>
+      <div class="log" id="log"></div>
+    </div>
+
+    <div class="meta" style="margin-top:auto;">
+      Stage 1 PoC — see
+      <a href="../../docs/roadmap-collaborative-workspace.md">roadmap</a>
+      and <a href="../../SPEC.md">SPEC §16, §17</a>.
+      Open this page in two tabs (or two browsers / two machines) and pick
+      the same room name.
+    </div>
+  </aside>
+</main>
+
+<div id="toast" class="toast"></div>
+
+<!-- Pin every ESM dependency to a single resolved version so esm.sh
+     transitive deps don't load duplicate yjs / @codemirror/state
+     instances (which silently breaks instanceof and Awareness). -->
+<script type="importmap">
+{
+  "imports": {
+    "yjs":                          "https://esm.sh/yjs@13.6.18",
+    "y-protocols/awareness":        "https://esm.sh/y-protocols@1.0.6/awareness?deps=yjs@13.6.18",
+    "y-codemirror.next":            "https://esm.sh/y-codemirror.next@0.3.5?deps=yjs@13.6.18,@codemirror/state@6.4.1,@codemirror/view@6.27.0,y-protocols@1.0.6",
+    "@codemirror/state":            "https://esm.sh/@codemirror/state@6.4.1",
+    "@codemirror/view":             "https://esm.sh/@codemirror/view@6.27.0?deps=@codemirror/state@6.4.1",
+    "@codemirror/commands":         "https://esm.sh/@codemirror/commands@6.5.0?deps=@codemirror/state@6.4.1,@codemirror/view@6.27.0",
+    "@codemirror/language":         "https://esm.sh/@codemirror/language@6.10.1?deps=@codemirror/state@6.4.1,@codemirror/view@6.27.0",
+    "@codemirror/lang-javascript":  "https://esm.sh/@codemirror/lang-javascript@6.2.2?deps=@codemirror/state@6.4.1,@codemirror/view@6.27.0,@codemirror/language@6.10.1",
+    "@codemirror/autocomplete":     "https://esm.sh/@codemirror/autocomplete@6.16.0?deps=@codemirror/state@6.4.1,@codemirror/view@6.27.0,@codemirror/language@6.10.1",
+    "@codemirror/search":           "https://esm.sh/@codemirror/search@6.5.6?deps=@codemirror/state@6.4.1,@codemirror/view@6.27.0"
+  }
+}
+</script>
+<script type="module" src="./app.js"></script>
+</body>
+</html>

@@ -334,11 +334,33 @@ These are explicitly **not** ambitions of NeoProtocol Workspace:
 
 | Stage | Status | Owner | Target |
 |---|---|---|---|
-| 1 — Living document with two agents | **committed** | — | next 1–2 weeks |
-| 2 — Cross-agent ACP | **committed** | — | following 1–2 weeks |
+| 1 — Living document with two agents | **✅ shipped** (`examples/cowork-poc/`, SPEC §17) | — | done |
+| 2 — Cross-agent ACP | **committed, next** | — | next 1–2 weeks |
 | 3 — Real workspace | conditional on Stage 2 demo response | — | TBD |
 | 4 — Local model option | conditional on Stage 3 | — | TBD |
 | 5 — Editor surface upgrade | conditional on Stages 1–4 traction | — | TBD |
+
+**Stage 1 — what we learned (from the PoC verification run, 2026-05-01):**
+
+- Multiplexing Y.js + future ACP onto two separate `RTCDataChannel`s on
+  the same `RTCPeerConnection` is clean — backpressure isolation, no
+  framing collision, both channels open in parallel after the SDP/ICE
+  handshake.
+- Custom Y.js provider over our existing data channel is ~110 LOC.
+  Beats `y-webrtc` (which would have brought its own signaling
+  server) for our use case.
+- **CRDT seed-collision race**: both peers calling
+  `yText.insert(0, STARTER_DOC)` in parallel after channel open
+  produced a doubled document because Y.js correctly preserved both
+  inserts. The fix (only the first joiner seeds, and only after
+  `sync_step2` confirms an empty doc) is now in SPEC §17.2.2.
+- Edit attribution as a `Y.Map` mutation in the same transaction as
+  the text edit — works reliably; receiving peers observe the meta
+  key change and surface a toast. Pattern carries over to Stage 2 for
+  cross-agent grants.
+- esm.sh + transitive deps requires an explicit importmap to avoid
+  loading multiple yjs / @codemirror/state instances. Documented in
+  `examples/cowork-poc/index.html`.
 
 When a stage ships, update PLAN.md with the milestone row, link the
 demo here, and write a short "what we learned" note before

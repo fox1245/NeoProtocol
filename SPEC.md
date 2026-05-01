@@ -93,6 +93,8 @@ exceeding the declared level.
 | **Host** | In Federated Mode: the Executor playing the ACP "agent" role — runs the leaves, receives prompts, may issue `fs/*` callbacks. (§16.3) |
 | **Signaling** | Out-of-band rendezvous channel used to exchange WebRTC SDP + ICE before the P2P data channel exists. (§16.2) |
 | **Virtual Path** | `np://session/<id>/<key>` namespace used in `fs/*` callbacks. Never maps to a real filesystem. (§16.4.1) |
+| **Coworker** | In Collaborative Workspace mode: a peer with both Driver and Host capabilities — same person owns prompts and the agent. (§17.1) |
+| **Workspace channel** | Second `RTCDataChannel` (label `neoprotocol-workspace`) carrying Y.js sync + awareness frames, multiplexed alongside the `neoprotocol-acp` channel on the same `RTCPeerConnection`. (§17.2) |
 
 ---
 
@@ -950,6 +952,198 @@ either side ─ leave / close
 
 ---
 
+## 17. Collaborative Workspace
+
+> **Status: v0.3 draft, Stage 1 reference implementation shipped.**
+> Stage 1 covers §§17.1–17.2, §17.5 attribution, and the Stage 1
+> portion of §17.6 lifecycle. Stage 2 (cross-agent ACP, §17.4) is
+> committed but not yet shipped. Stage 3 onwards (§17.3 real-file
+> mapping) is conditional. See
+> [`docs/roadmap-collaborative-workspace.md`](docs/roadmap-collaborative-workspace.md)
+> for the staged plan and decision criteria.
+
+Federated Mode (§16) lets two browsers exchange ACP frames over a P2P
+data channel. Collaborative Workspace generalizes that primitive into
+a shared editable document: two or more peers, each with their own
+agent (local model or BYOK), share a Y.js CRDT and the protocol
+preserves attribution as edits propagate.
+
+The Originator's role is unchanged from §16. It signals; it does not
+see the workspace state, the document content, the prompts, or the
+agent outputs. ACP frames and Y.js updates both ride DTLS-protected
+SCTP — strictly P2P — and the §16.4 trust class applies verbatim.
+
+### 17.1 Roles
+
+- **Coworker** — a peer with both Driver and Host capabilities. The
+  same person owns the user-facing UI (drives prompts) and the
+  agent-facing logic (runs the BYOK / local agent). Coworkers are
+  symmetric: any Coworker can prompt their own agent or, with
+  consent (§17.4), prompt a peer's agent.
+- **Originator** — same as §16: signaling rendezvous, never sees the
+  data plane.
+
+A peer's `capabilities.federated.role` value is `"both"` when acting
+as a Coworker.
+
+### 17.2 Workspace channel
+
+The Workspace channel is a separate `RTCDataChannel` from the §16
+ACP channel, multiplexed onto the same `RTCPeerConnection`:
+
+| Channel label | Carries | SPEC |
+|---|---|---|
+| `neoprotocol-acp` | ACP JSON-RPC 2.0 frames (§16) | §16.3 |
+| `neoprotocol-workspace` | Y.js sync + awareness frames (§17.2) | §17.2 |
+
+Both channels MUST be ordered + reliable. Splitting them isolates
+backpressure (large Y.js updates won't head-of-line block ACP
+prompts) and lets a Stage 2 peer that does not yet speak ACP still
+participate in §17 cowork.
+
+#### 17.2.1 Frame format
+
+Each `RTCDataChannel.send()` carries one JSON envelope. Binary Y.js
+payloads are base64url-encoded (browsers don't have native ergonomic
+binary framing on data channels; the Stage 1 PoC measured the
+overhead at ~33% per frame which is acceptable for code-sized docs).
+
+```jsonc
+// Y.js sync handshake — one round-trip on connect
+{ "kind": "ydoc.sync_step1", "sv":     "<base64 state vector>" }
+{ "kind": "ydoc.sync_step2", "update": "<base64 update bytes>"  }
+
+// Subsequent local edits — broadcast on Y.Doc 'update' event
+{ "kind": "ydoc.update",     "update": "<base64 update bytes>"  }
+
+// Cursor / selection / display name — one frame per local awareness change
+{ "kind": "awareness.update", "update": "<base64 awareness update>" }
+```
+
+Reserved frame kinds (forward compatibility): `ydoc.sub` and
+`ydoc.unsub` for multi-document workspaces (Stage 3).
+
+#### 17.2.2 First-joiner seed rule
+
+To prevent the late-joiner double-seed race that Stage 1
+PoC verification exposed:
+
+- The first peer to enter a fresh room (signaling reports
+  `peers.length === 0` in its `joined` ack) MAY seed the document
+  with starter content **only after** the Workspace channel opens
+  AND the `ydoc.sync_step2` exchange completes with a still-empty
+  Y.Doc.
+- Late joiners (`peers.length > 0`) MUST NOT seed.
+- Implementations MUST NOT seed before the channel is open;
+  optimistic local seeds will collide under CRDT semantics with the
+  remote's seed and produce duplicated content.
+
+### 17.3 Real-file mapping safety profile (Stage 3 placeholder)
+
+When a Coworker maps Virtual Paths (§16.4.1) to real filesystem
+entries via a sandbox root (e.g. browser `FileSystemDirectoryHandle`),
+the following constraints MUST hold. **Stage 3 will fill in the
+detail; the slot is reserved here.**
+
+- The sandbox root MUST be a directory the user explicitly chose
+  through the browser's permission UI in this session. It MUST NOT
+  be persisted across origins.
+- Every `np://session/<id>/workspace/<rel>` resolves to
+  `<sandboxRoot>/<rel>` after `..` and absolute-path rejection.
+- Path traversal outside the sandbox MUST yield `FED-001` /
+  `FED-002` (unchanged from §16.4).
+
+### 17.4 Cross-agent permission grants (Stage 2)
+
+When a peer's agent issues an ACP request whose target is the
+*peer's* agent (rather than its own user), the receiving Driver
+MUST surface a permission UI. The Driver's response carries a grant
+scope:
+
+| Grant | Meaning |
+|---|---|
+| `allow_once`        | This single request only. Future requests re-prompt. |
+| `allow_session`     | All future requests with the same `(method, virtual_path_root)` for the active session. |
+| `allow_per_path`    | All future requests with the *exact* `path` for the active session. |
+| `deny_once`         | Reject this request (`FED-003`). Future requests re-prompt. |
+| `deny_session`      | Reject this and all future requests for the session. |
+
+These extend the existing `session/request_permission` outcome
+field. A peer that does not understand the new grant variants MUST
+treat them as `allow_once` / `deny_once` respectively for forward
+compatibility.
+
+### 17.5 Attribution
+
+Every Y.Doc transaction that is the result of an *agent* edit (as
+opposed to a direct human keystroke) MUST stamp the workspace
+metadata map with:
+
+```jsonc
+{
+  "agentId":    "<implementation-defined; e.g. 'anthropic', 'mock', 'local-gemma2'>",
+  "peerId":     "<peer_id of the user whose agent produced the edit>",
+  "appliedAt":  <unix-ms when the user clicked Apply>,
+  "bytesIn":    <inserted character count>,
+  "bytesOut":   <deleted character count>
+}
+```
+
+This metadata travels with the edit (it's a Y.Map mutation in the
+same transaction). Receiving peers' UIs SHOULD surface attribution —
+e.g. a transient toast "User A's agent applied an edit" — so that
+collaborators can distinguish human edits from agent edits at a
+glance. Stage 1 PoC implements this with a fade-in toast.
+
+### 17.6 Lifecycle (Stage 1 + Stage 2 sketch)
+
+```
+SIGNALING                                      DATA PLANES
+─────────                                      ───────────
+peer-A ─ join(room=R, role=host) ──► relay
+peer-B ─ join(room=R, role=driver) ─► relay
+relay  ─ peer_joined ──► both peers
+                                               (RTCPeerConnection + 2 DCs:
+                                                neoprotocol-acp,
+                                                neoprotocol-workspace)
+                                               ─────────────────────────
+                                               WORKSPACE channel:
+                                               peer-A → ydoc.sync_step1
+                                               peer-B → ydoc.sync_step2
+                                               peer-A seeds (first joiner)
+                                               peer-A → ydoc.update (seed bytes)
+                                               peer-B applies → editor renders
+                                               (Stage 1 stops here)
+                                               ─────────────────────────
+                                               STAGE 2: ACP channel:
+                                               peer-A's user prompts agent
+                                               peer-A's agent decides it needs
+                                                 peer-B's agent
+                                               peer-A's agent → ACP request
+                                                 over neoprotocol-acp DC
+                                               peer-B's UI shows permission
+                                                 dialog with grant choice
+                                               peer-B's user picks allow_once
+                                               peer-B's agent runs the request
+                                               peer-B's agent → result via ACP
+                                               peer-A's agent integrates
+                                               either side → ydoc.update with
+                                                 attribution {agentId, peerId}
+```
+
+### 17.7 Out of scope (Stage 1+2 → Stage 3+)
+
+| Item | Stage | Notes |
+|---|---|---|
+| Multi-file workspace + file tree | 3 | Reserved `ydoc.sub` / `ydoc.unsub` frame kinds. |
+| `FileSystemDirectoryHandle` mapping | 3 | §17.3 placeholder. |
+| Local-model agent backends | 4 | BYOK only in Stages 1–3. |
+| Multi-peer (>2) Coworker mesh | 1 (wire) / 4 (impl) | Wire allows; reference is 1:1. |
+| Edit conflict UX (semantic merge) | 4+ | CRDT handles textual conflicts; semantic conflicts are out of protocol scope. |
+| Voice / video | never | Application choice on top of WebRTC; not protocol territory. |
+
+---
+
 ## Appendix A — Spec evolution log
 
 | Version | Section additions | Commit |
@@ -957,4 +1151,5 @@ either side ─ leave / close
 | v0 init | §1, §5 (flow), §6 (offer), §10 (envelope), §11 (consent), §14 (versioning), §15 (deferred) | `26dd8e8` |
 | v0.3 draft I | §2 conformance levels, §7 graph semantics, §8 impl models, §9 capability statement | `7265e66` |
 | v0.3 draft II | §3 glossary, §4 transport, §5 expanded sequence diagrams, §12 error code taxonomy, §13 reliability | `11bb7de` |
-| v0.3 draft III | §16 Federated Mode (ACP-over-WebRTC; Standard + Minimal signaling; Virtual Path safety profile); §3 glossary entries; §12 SIG/FED codes; §2 federated-orthogonality note | this commit |
+| v0.3 draft III | §16 Federated Mode (ACP-over-WebRTC; Standard + Minimal signaling; Virtual Path safety profile); §3 glossary entries; §12 SIG/FED codes; §2 federated-orthogonality note | `7e22473` |
+| v0.3 draft IV | §17 Collaborative Workspace (Coworker role; Workspace channel multiplexed with ACP; first-joiner seed rule; cross-agent permission grant variants Stage-2 spec; attribution metadata); Stage 1 reference impl `examples/cowork-poc/` | this commit |

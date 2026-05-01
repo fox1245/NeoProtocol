@@ -19,7 +19,7 @@
 
 const DEFAULT_ICE = [{ urls: "stun:stun.l.google.com:19302" }];
 
-const RPC_LABEL = "neoprotocol-acp";
+const DEFAULT_DC_LABEL = "neoprotocol-acp";
 
 function newPeerConnection(iceServers) {
   return new RTCPeerConnection({ iceServers: iceServers || DEFAULT_ICE });
@@ -30,13 +30,14 @@ function newPeerConnection(iceServers) {
 // ------------------------------------------------------------------
 
 export class SignalingPeer extends EventTarget {
-  constructor({ wsUrl, room, role, capabilities, iceServers }) {
+  constructor({ wsUrl, room, role, capabilities, iceServers, dcLabel }) {
     super();
     this.wsUrl = wsUrl;
     this.room = room;
     this.role = role;
     this.capabilities = capabilities || {};
     this.iceServers = iceServers || DEFAULT_ICE;
+    this.dcLabel = dcLabel || DEFAULT_DC_LABEL;
     this.pc = null;
     this.dc = null;
     this.peerId = null;
@@ -53,7 +54,10 @@ export class SignalingPeer extends EventTarget {
       // Host pre-creates the data channel; driver receives it via
       // ondatachannel. Either model works — we pick "host owns the
       // channel" to keep the asymmetric ACP relationship explicit.
-      this._attachDataChannel(this.pc.createDataChannel(RPC_LABEL, { ordered: true }));
+      // For Cowork (SPEC §17), the same wiring is reused with a
+      // different `dcLabel` ("neoprotocol-workspace") and roles are
+      // semantically symmetric (first joiner = host).
+      this._attachDataChannel(this.pc.createDataChannel(this.dcLabel, { ordered: true }));
     } else {
       this.pc.addEventListener("datachannel", (e) => this._attachDataChannel(e.channel));
     }
@@ -233,13 +237,14 @@ function waitIceGatheringComplete(pc) {
 }
 
 export class ManualPeer extends EventTarget {
-  constructor({ role, iceServers } = {}) {
+  constructor({ role, iceServers, dcLabel } = {}) {
     super();
     this.role = role;
     this.pc = newPeerConnection(iceServers);
     this.dc = null;
+    this.dcLabel = dcLabel || DEFAULT_DC_LABEL;
     if (role === "host") {
-      this._attachDataChannel(this.pc.createDataChannel(RPC_LABEL, { ordered: true }));
+      this._attachDataChannel(this.pc.createDataChannel(this.dcLabel, { ordered: true }));
     } else {
       this.pc.addEventListener("datachannel", (e) => this._attachDataChannel(e.channel));
     }
