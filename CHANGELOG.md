@@ -10,6 +10,42 @@ tracks the demo / server / spec evolution.
 
 ### Added
 
+- **Collaborative Workspace — Stage 5: Multi-host fan-out** (SPEC §17.8):
+  the two NeoProtocol planes merge. A Coworker submits a NL prompt to
+  the Originator, receives a multi-leaf Task Offer (§6/§7), broadcasts
+  it through the Workspace channel as a Y.Map mutation, and every peer
+  in the room independently computes a **deterministic
+  leaf-to-peer assignment** from `sort(client_ids)[hash(leaf_id) % N]`.
+  Each peer runs only its assigned leaves with its currently selected
+  agent (BYOK / Local / Mock); results land in shared Y.Map channels
+  with attribution. The reducer is assigned by the same hash; whoever
+  runs it prepends a markdown report to the workspace doc (§17.5
+  attribution credits the reducer-running peer; per-leaf attribution
+  travels in the report body).
+  - `examples/cowork-poc/task-runner.js` (~290 LOC)
+  - `server/fixtures/cowork_review.json` — 2-leaf graph
+    (summarize + find_issues → aggregate)
+  - `server/decomposer.js` — `cowork_review` pattern matcher
+  - SPEC §17.8 (subsections .1 Y.Map state, .2 deterministic
+    assignment, .3 lifecycle, .4 reducer semantics, .5 built-in
+    reducer registry, .6 failure handling, .7 why deterministic vs
+    claim-and-race)
+  - Two-tab Playwright smoke: hash split assigned summarize→tab1
+    (252 ms), find_issues→tab0 (251 ms), aggregate→tab1 (1 ms),
+    report attribution-stamped and prepended to workspace doc
+  - **Roadmap re-numbering**: Stage 5 is now multi-host fan-out
+    (the more impactful "5th empty quadrant"); old Stage 5 (editor
+    surface upgrade) becomes Stage 6.
+
+- **OpenAI BYOK backend** (`askOpenAI`) — `chat/completions` endpoint
+  with `response_format: json_object`, browser-direct (Authorization:
+  Bearer header). Now the default in the 4-option agent dropdown
+  (OpenAI / Anthropic / Local / Mock); per-provider API-key placeholder.
+  Routes through Ask-my-agent, cross-agent receiver, and task-runner.
+
+- **`.env` added to `.gitignore`** (with `.env.*` and `!.env.example`
+  exceptions for committed templates).
+
 - **Collaborative Workspace — Stage 3** (SPEC §17 status, no wire
   change): local-model agent backend. The agent-mode dropdown now
   has three options — Anthropic (BYOK), **Local — Gemma / Llama

@@ -16,8 +16,15 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const PATTERNS = [
   {
+    // SPEC §17.8 cowork demo — two leaves + reducer, designed for
+    // multi-host fan-out across two Coworkers.
+    name: "cowork_review",
+    test: (p) => /code\s*review|review.*code|cowork|fan-?out|multi-?host|summarize.*and|critique/i.test(p),
+    fixture: "cowork_review.json"
+  },
+  {
     name: "sentiment_batch",
-    test: (p) => /sentiment|review|positive|negative|감성/i.test(p),
+    test: (p) => /sentiment|positive|negative|감성|review.*sentiment/i.test(p),
     fixture: "sentiment_batch.json"
   }
 ];

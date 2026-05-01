@@ -4,8 +4,9 @@
 import { SignalingPeer } from "../p2p-acp-poc/peer.js";
 import { YDocChannel } from "./ydoc-channel.js";
 import { makeWorkspace } from "./workspace.js";
-import { askAnthropic, askMock, askLocal } from "./agent.js";
+import { askAnthropic, askOpenAI, askMock, askLocal } from "./agent.js";
 import { makeCrossAgentChannel, startCrossAgentReceiver, startCrossAgentSender } from "./cross-agent.js";
+import { TaskRunner } from "./task-runner.js";
 
 const $ = (id) => document.getElementById(id);
 const log = (line, kind = "sys") => {
@@ -46,11 +47,17 @@ $("api-key").addEventListener("change", (e) => {
   sessionStorage.setItem("cowork.apiKey", e.target.value);
 });
 
-// Show / hide the local-model-id row based on the agent mode.
+// Show / hide the local-model-id row based on the agent mode and
+// adjust the API-key field's placeholder per provider.
 function refreshAgentModeUi() {
   const mode = $("agent-mode").value;
   $("local-model-row").style.display = mode === "local" ? "" : "none";
-  $("api-key").style.display = mode === "anthropic" ? "" : "none";
+  const needsKey = mode === "anthropic" || mode === "openai";
+  $("api-key").style.display = needsKey ? "" : "none";
+  $("api-key").placeholder =
+    mode === "openai"     ? "sk-... (OpenAI key, sessionStorage only)"
+  : mode === "anthropic"  ? "sk-ant-... (Anthropic key, sessionStorage only)"
+  : "(no key needed)";
 }
 $("agent-mode").addEventListener("change", refreshAgentModeUi);
 refreshAgentModeUi();
@@ -83,6 +90,7 @@ let peer = null;
 let chan = null;            // YDocChannel (workspace)
 let xagentSender = null;    // sender side of cross-agent ACP
 let xagentReceiver = null;  // receiver side of cross-agent ACP
+let taskRunner = null;      // SPEC §17.8 multi-host fan-out
 let ourPeerId = null;
 let abortAgent = null;
 let pendingSuggestion = null;
@@ -210,6 +218,30 @@ function wirePeerEvents(p) {
         if (p._weAreFirstJoiner && p._weAreFirstJoiner()) ws.seedIfEmpty();
       });
 
+      // Stage 5 / SPEC §17.8 — task runner. One per Coworker, listening
+      // on the same Y.Doc maps from both sides so leaf execution
+      // distributes deterministically.
+      taskRunner = new TaskRunner({
+        ws,
+        ourClientId: ws.doc.clientID,
+        getAgentSelection: () => ({
+          agentId: $("agent-mode").value,
+          apiKey:  $("api-key").value.trim(),
+          modelId: $("local-model-id").value.trim() || "onnx-community/Llama-3.2-1B-Instruct"
+        }),
+        log: (line) => log(line, "agent")
+      });
+      taskRunner.addEventListener("task-complete", () => {
+        renderTaskState();
+      });
+      // Re-render the task panel on every Y.Doc map change so both
+      // peers see the live leaf assignment + status.
+      ws.doc.getMap("task").observe(renderTaskState);
+      ws.doc.getMap("channels").observe(renderTaskState);
+      ws.doc.getMap("leaf_status").observe(renderTaskState);
+      $("btn-run-task").disabled = false;
+      log(`task runner ready (clientId=${ws.doc.clientID})`, "sys");
+
       // Stage 1 attribution toast — register once when the workspace
       // channel opens. Toast fires only for the *peer's* agent edits.
       ws.onAgentEdit((v) => {
@@ -237,13 +269,14 @@ function wirePeerEvents(p) {
         runAgent: async ({ prompt, document }) => {
           const mode = liveAgentId();
           const apiKey = $("api-key").value.trim();
-          if (mode === "mock" || (mode === "anthropic" && !apiKey)) {
+          if (mode === "mock" || ((mode === "anthropic" || mode === "openai") && !apiKey)) {
             return askMock({ prompt, document });
           }
           if (mode === "local") {
             const modelId = $("local-model-id").value.trim() || "onnx-community/Llama-3.2-1B-Instruct";
             return askLocal({ modelId, prompt, document, onProgress: makeLocalProgressReporter() });
           }
+          if (mode === "openai") return askOpenAI({ apiKey, prompt, document });
           return askAnthropic({ apiKey, prompt, document });
         },
         getDocument: () => ws.yText.toString(),
@@ -291,8 +324,8 @@ $("btn-ask").addEventListener("click", async () => {
   const apiKey = $("api-key").value.trim();
   const askPeer = $("ask-peer").checked;
   const modelId = $("local-model-id").value.trim();
-  if (!askPeer && mode === "anthropic" && !apiKey) {
-    log(`agent: API key required for Anthropic mode (or pick mock / local)`, "agent");
+  if (!askPeer && (mode === "anthropic" || mode === "openai") && !apiKey) {
+    log(`agent: API key required for ${mode} mode (or pick mock / local)`, "agent");
     return;
   }
   if (!askPeer && mode === "local" && !modelId) {
@@ -341,6 +374,8 @@ $("btn-ask").addEventListener("click", async () => {
           onProgress: makeLocalProgressReporter(),
           signal: ctrl.signal
         });
+      } else if (mode === "openai") {
+        result = await askOpenAI({ apiKey, prompt, document, signal: ctrl.signal });
       } else {
         result = await askAnthropic({ apiKey, prompt, document, signal: ctrl.signal });
       }
@@ -403,6 +438,72 @@ $("btn-discard").addEventListener("click", () => {
 });
 
 // ---- Cross-agent permission dialog (SPEC §17.4) ----
+
+// ---- SPEC §17.8 task panel ----
+
+function renderTaskState() {
+  if (!taskRunner) return;
+  const snap = taskRunner.snapshot();
+  const stateEl = $("task-state");
+  const graphEl = $("task-graph");
+  if (!snap) {
+    stateEl.textContent = "No task running.";
+    graphEl.style.display = "none";
+    graphEl.textContent = "";
+    return;
+  }
+  const { offer, status, assignments, leafStatus, channels, ourClientId, clientIds } = snap;
+  const assignedToMe = (id) => assignments[id] === ourClientId;
+  const stateOf = (id) => leafStatus[id]?.state || "pending";
+  const lines = [];
+  lines.push(`Task ${offer.task.id.slice(0, 8)} · status=${status} · ${clientIds.length} peer(s) · clientIds=[${[...clientIds].sort().join(", ")}] · my clientId=${ourClientId}`);
+  lines.push("");
+  lines.push("Leaves & assignments:");
+  for (const node of offer.graph.nodes) {
+    const mine = assignedToMe(node.id) ? " ← MINE" : "";
+    const st = stateOf(node.id);
+    const dur = leafStatus[node.id]?.duration_ms;
+    const agent = leafStatus[node.id]?.agentId;
+    const tail = st === "done"     ? ` (${agent}, ${dur} ms)`
+              : st === "running"  ? ` (${agent}, …)`
+              : st === "failed"   ? ` (${leafStatus[node.id]?.error || "?"})`
+              : "";
+    lines.push(`  ${st === "done" ? "✓" : st === "running" ? "▸" : st === "failed" ? "✗" : "·"} ${node.kind === "reducer" ? "[R]" : "[L]"} ${node.id} → client ${assignments[node.id]}${mine}${tail}`);
+    if (node.reads?.length) lines.push(`        reads: ${node.reads.join(", ")}`);
+    if (node.writes?.length) lines.push(`       writes: ${node.writes.join(", ")}`);
+  }
+  if (Object.keys(channels).length) {
+    lines.push("");
+    lines.push("Channels (truncated):");
+    for (const [k, v] of Object.entries(channels)) {
+      const trimmed = String(v).replace(/\s+/g, " ").trim();
+      lines.push(`  ${k}: ${trimmed.slice(0, 110)}${trimmed.length > 110 ? "…" : ""}`);
+    }
+  }
+  stateEl.textContent = `Task running — ${offer.task.type}`;
+  graphEl.style.display = "";
+  graphEl.textContent = lines.join("\n");
+}
+
+$("btn-run-task").addEventListener("click", async () => {
+  if (!taskRunner) return;
+  const prompt = $("task-prompt").value.trim() || "code review this document";
+  $("btn-run-task").disabled = true;
+  try {
+    // Use the Originator URL inferred from the signaling URL — drop
+    // the ws://...//signaling tail and prepend http://
+    const sig = $("ws-url").value.trim();
+    const originatorUrl = sig.replace(/^wss?:\/\//, "http://").replace(/\/signaling.*$/, "");
+    await taskRunner.runFromPrompt({ prompt, originatorUrl });
+  } catch (e) {
+    log(`task: failed to start — ${e.message}`, "agent");
+  } finally {
+    $("btn-run-task").disabled = false;
+  }
+});
+$("btn-reset-task").addEventListener("click", () => {
+  if (taskRunner) taskRunner.reset();
+});
 
 function askXAgentPermission({ remotePeerId, remoteAgentId, prompt }) {
   return new Promise((resolve) => {

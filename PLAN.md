@@ -23,7 +23,8 @@
 | **Federated Mode (SPEC §16, browser↔browser ACP-over-WebRTC)** | ✅ done | `7e22473` |
 | **Collaborative Workspace Stage 1** (CodeMirror + Y.js + per-user agent) | ✅ done | `78e1124` |
 | **Collaborative Workspace Stage 2** (cross-agent ACP) | ✅ done | `0be535d` |
-| **Collaborative Workspace Stage 3** (local-model backend, was Stage 4 — order swapped) | ✅ done | (this commit) |
+| **Collaborative Workspace Stage 3** (local-model backend, was Stage 4 — order swapped) | ✅ done | `1b0d858` |
+| **Collaborative Workspace Stage 5** (multi-host fan-out — SPEC §17.8 — joins Task Offer plane with Workspace plane) | ✅ done | (this commit) |
 | Workspace Stage 4 (FS Access API, multi-buffer; was Stage 3) | ⏸ conditional | see [docs/roadmap-collaborative-workspace.md](docs/roadmap-collaborative-workspace.md) |
 | Workspace Stage 5 (editor surface upgrade) | ⏸ conditional | — |
 | v1 streaming + multi-node | ⏳ | — |

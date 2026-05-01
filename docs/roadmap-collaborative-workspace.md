@@ -355,9 +355,46 @@ These are explicitly **not** ambitions of NeoProtocol Workspace:
 |---|---|---|---|
 | 1 — Living document with two agents | **✅ shipped** (`examples/cowork-poc/`, SPEC §17) | — | done |
 | 2 — Cross-agent ACP | **✅ shipped** (`examples/cowork-poc/cross-agent.js`, SPEC §17.4) | — | done |
-| 3 — Local-model option (was Stage 4 — order swapped) | **✅ shipped** (`examples/cowork-poc/local-model.js`, 3-option agent dropdown) | — | done |
-| 4 — Real workspace (was Stage 3) | conditional on Stage 3 | — | TBD |
-| 5 — Editor surface upgrade | conditional on Stages 1–4 traction | — | TBD |
+| 3 — Local-model option (was Stage 4 — order swapped) | **✅ shipped** (`examples/cowork-poc/local-model.js`, 4-option agent dropdown) | — | done |
+| 5 — Multi-host fan-out (Cowork ↔ Task Offer merge) | **✅ shipped** (`examples/cowork-poc/task-runner.js`, SPEC §17.8, cowork_review fixture) | — | done — order swapped from "editor surface upgrade" because the fan-out fills the 5th empty quadrant |
+| 4 — Real workspace (was Stage 3) | conditional on demo response | — | TBD |
+| 6 — Editor surface upgrade (was Stage 5) | conditional on Stages 1–5 traction | — | TBD |
+
+**Stage 5 — what we learned (2026-05-02 — multi-host fan-out shipped, the 5th empty quadrant filled):**
+
+- **Two NeoProtocol planes merged**: §6/§7 Task Offer (server-side
+  decomposition into a JSON graph) and §16/§17 Federated Mode +
+  Workspace channel (peer-to-peer Y.Doc + ACP). Until Stage 5
+  these were separate; SPEC §17.8 wires them through a Y.Map
+  broadcast of the offer and deterministic leaf-to-peer dispatch.
+- **Deterministic assignment beats claim-and-race**. Considered
+  Y.Map "claim" entries but Y.js CRDT can reorder concurrent writes
+  after the fact, so two peers could each see their own claim
+  apply locally and run the same leaf twice. Hash-based
+  assignment (sorted client_ids, leaf_id mod N) sidesteps this:
+  both peers reach the same conclusion BEFORE doing any work, no
+  coordination round-trip needed.
+- **No new wire frames**. Y.Map mutations on the existing Workspace
+  channel (§17.2.1) carry the offer + channel state + leaf status
+  natively. The §6/§7 Task Offer JSON shape is unchanged.
+- **Reducer execution is also assigned by the same hash** — exactly
+  one peer ends up running it. The peer that runs the reducer
+  becomes the natural §17.5 attribution author for the final
+  bytes; per-leaf attribution is still preserved in the rendered
+  markdown report body (each section says which peer/agent ran it).
+- **OpenAI BYOK added** in the same session because Anthropic
+  credit is constrained — `askOpenAI` mirrors `askAnthropic`'s
+  `{reasoning, newDocument}` contract over `chat/completions` with
+  `response_format: json_object`. 4-option dropdown: OpenAI default
+  / Anthropic / Local / Mock. Routes through all three execution
+  paths (Ask-my-agent, cross-agent receiver, task-runner).
+- **Smoke verified end-to-end** with mock agents (offline; no
+  credits): tab 0 + tab 1 joined room s5-A, tab 0 ran "code review
+  this document", Originator returned cowork_review fixture, hash
+  split assigned `summarize` to tab 1 (252 ms), `find_issues` to
+  tab 0 (251 ms), `aggregate` reducer to tab 1 (1 ms), final
+  markdown report prepended to workspace doc with attribution
+  (`peer's agent edit landed: +1264 -0` toast on tab 0).
 
 **Stage 3 — what we learned (2026-05-01):**
 

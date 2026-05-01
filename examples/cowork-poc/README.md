@@ -1,6 +1,6 @@
-# Cowork PoC — Stages 1+2+3: Living document + cross-agent ACP + local model
+# Cowork PoC — Stages 1+2+3+5: Living document + cross-agent ACP + local model + multi-host fan-out
 
-Reference implementation for [SPEC §17](../../SPEC.md) Stages 1–3 of
+Reference implementation for [SPEC §17](../../SPEC.md) Stages 1–3 + 5 of
 the [Collaborative Workspace roadmap](../../docs/roadmap-collaborative-workspace.md).
 
 ## What it shows
@@ -25,7 +25,7 @@ asker applies it; attribution credits the *remote* peer and agent —
 the wire records who actually authored the bytes even though the
 local user pressed Apply.
 
-**Stage 3**: the agent-mode dropdown gains a third option, **Local —
+**Stage 3**: the agent-mode dropdown gains a Local option, **Local —
 Gemma / Llama (WebGPU, in-browser)**. transformers.js v3 + ONNX
 Runtime Web load a small instruct-tuned LLM directly into the
 browser (q4f16 weights + fp16 activations on WebGPU; q4 + fp32 on
@@ -35,6 +35,21 @@ the loop. The model-ID field accepts any HuggingFace ONNX bundle:
 default is Llama-3.2 1B (~700 MB); paste e.g. `onnx-community/gemma-4-E2B-it`
 if you have it. First load downloads to IndexedDB; subsequent visits
 are instant.
+
+**Stage 5**: the **Cowork task** card. Type a NL prompt and click
+*Decompose & run*. The Originator returns a multi-leaf Task Offer
+(currently the `cowork_review` fixture: `summarize` + `find_issues`
+→ `aggregate`). The offer is broadcast through the Workspace channel
+(Y.Map `task` / `channels` / `leaf_status`); every peer
+deterministically computes which leaves are theirs from
+`sort(client_ids)[hash(leaf_id) % N]` — no claim-and-race round-trip,
+race-free by construction. Each peer runs its leaves with its
+currently selected agent (so peer A can run `summarize` on local
+Gemma while peer B runs `find_issues` on OpenAI BYOK). The reducer
+runs on whichever peer the same hash assigns it to and prepends a
+markdown report to the workspace document, with §17.5 attribution
+crediting that peer. Per-leaf attribution (which peer / which agent
+ran each leaf) is preserved in the report body.
 
 The Originator only signals — it never sees the document, the prompt,
 the agent output, or the attribution. ACP and Y.js traffic both ride
@@ -92,6 +107,7 @@ Originator, never to the peer.
 | `cross-agent.js` | Stage 2 — ACP recursion. `makeCrossAgentChannel(dc)` returns one `JsonRpcChannel` shared between `startCrossAgentReceiver` (handles inbound prompts with permission gate) and `startCrossAgentSender` (asks peer's agent). ~230 LOC |
 | `agent.js` | BYOK Anthropic Messages API client + offline mock + lazy re-export of `askLocal` from `local-model.js` |
 | `local-model.js` | Stage 3 — transformers.js v3 + ONNX Runtime Web pipeline wrapper. Lazy load with progress, WebGPU detection + wasm fallback, dtype selection for the verified-safe combos (WebGPU→q4f16, wasm→q4), JSON-tolerant output extraction. ~135 LOC |
+| `task-runner.js` | Stage 5 — SPEC §17.8 multi-host fan-out. Fetches a Task Offer from the Originator, broadcasts via Y.Map, computes deterministic leaf-to-peer assignment, runs assigned leaves with the local agent backend, runs the reducer (built-in `markdown_report` / `zip_and_count`), prepends final report to the workspace doc with §17.5 attribution. ~290 LOC |
 
 ## How it relates to Federated Mode (§16)
 
@@ -113,16 +129,18 @@ What's new in Stage 1:
 - First-joiner seed rule (SPEC §17.2.2) — preventing a CRDT
   double-seed race the PoC verification caught.
 
-## What's NOT in Stages 1+2+3
+## What's NOT in Stages 1+2+3+5
 
-(Stage 4+ — see roadmap.)
+(Stage 4 + Stage 6+ — see roadmap.)
 
-- Real workspace folder via `FileSystemDirectoryHandle`
-- Multi-buffer / file tree
-- Multi-peer (>2 Coworkers) mesh
+- Real workspace folder via `FileSystemDirectoryHandle` (Stage 4)
+- Multi-buffer / file tree (Stage 4)
+- Multi-peer (>2 Coworkers) mesh — wire/algo support it (§17.8 generalizes), reference impl is 2-peer
 - TURN fallback for symmetric NAT
-- `allow_per_path` grant scope (reserved in §17.4 for the workspace stage when there are multiple Virtual Paths in flight per session)
-- Pre-cached / split-bundle model loading (current Stage 3 lazy-loads on first selection — first-load size is honest but heavy)
+- `allow_per_path` grant scope (reserved in §17.4)
+- Real LLM decomposer (current Originator is a stub pattern-matcher → fixture; v0.2-B replaces with a frontier-model call)
+- Per-leaf retry / failure recovery (Stage 5 PoC marks failed leaves and stops)
+- Pre-cached / split-bundle model loading (Stage 3 lazy-loads on first selection — first-load size is honest but heavy)
 
 ## Known limits
 

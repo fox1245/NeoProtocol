@@ -954,15 +954,15 @@ either side ─ leave / close
 
 ## 17. Collaborative Workspace
 
-> **Status: v0.3 draft, Stages 1+2+3 reference implementation shipped.**
-> Stage 1 covers §§17.1–17.2, §17.5 attribution, and the Stage 1
-> portion of §17.6 lifecycle. Stage 2 covers §17.4 (cross-agent
-> permission grants + ACP recursion shape + streamed candidate
-> document). Stage 3 adds a local-model agent backend
-> (transformers.js v3 + WebGPU/wasm) — purely an Executor
-> implementation detail; the protocol wire does not change.
-> Stage 4 onwards (§17.3 real-file mapping) is conditional. See
-> [`docs/roadmap-collaborative-workspace.md`](docs/roadmap-collaborative-workspace.md)
+> **Status: v0.3 draft, Stages 1+2+3+5 reference implementation shipped.**
+> Stage 1 covers §§17.1–17.2, §17.5 attribution. Stage 2 covers
+> §17.4 (cross-agent permission grants + ACP recursion). Stage 3 adds
+> a local-model agent backend (no wire change). **Stage 5 covers
+> §17.8 — multi-host fan-out from a Task Offer**, joining the §6/§7
+> Task Offer plane with the §16/§17 Workspace plane via Y.Map
+> broadcast and deterministic leaf-to-peer assignment. Stage 6
+> onwards (§17.3 real-file mapping, multi-buffer) is conditional.
+> See [`docs/roadmap-collaborative-workspace.md`](docs/roadmap-collaborative-workspace.md)
 > for the staged plan and decision criteria.
 
 Federated Mode (§16) lets two browsers exchange ACP frames over a P2P
@@ -1212,16 +1212,133 @@ relay  ─ peer_joined ──► both peers
                                                  attribution {agentId, peerId}
 ```
 
-### 17.7 Out of scope (Stage 1+2 → Stage 3+)
+### 17.7 Out of scope (Stages 1–5 → Stage 6+)
 
 | Item | Stage | Notes |
 |---|---|---|
-| Multi-file workspace + file tree | 3 | Reserved `ydoc.sub` / `ydoc.unsub` frame kinds. |
-| `FileSystemDirectoryHandle` mapping | 3 | §17.3 placeholder. |
-| Local-model agent backends | 4 | BYOK only in Stages 1–3. |
-| Multi-peer (>2) Coworker mesh | 1 (wire) / 4 (impl) | Wire allows; reference is 1:1. |
-| Edit conflict UX (semantic merge) | 4+ | CRDT handles textual conflicts; semantic conflicts are out of protocol scope. |
+| Multi-file workspace + file tree | 6 (was 3) | Reserved `ydoc.sub` / `ydoc.unsub` frame kinds. |
+| `FileSystemDirectoryHandle` mapping | 6 (was 3) | §17.3 placeholder. |
+| Multi-peer (>2) Coworker mesh | 1 (wire) / 6 (impl) | §17.8 deterministic assignment generalizes to N peers; reference is 2-peer. |
+| Edit conflict UX (semantic merge) | 6+ | CRDT handles textual conflicts; semantic conflicts are out of protocol scope. |
 | Voice / video | never | Application choice on top of WebRTC; not protocol territory. |
+
+### 17.8 Multi-host fan-out from a Task Offer (Stage 5 — implemented)
+
+The merge point between two NeoProtocol planes:
+- **§6 / §7** — Originator decomposes a NL prompt into a JSON Task
+  Offer with channels + reducers + edges
+- **§16 / §17** — two Coworkers share a Y.Doc + ACP channel over P2P
+
+Until §17.8, these planes were independent. §17.8 lets them
+compose: a single Coworker submits a prompt to the Originator,
+receives a multi-leaf Task Offer, broadcasts it through the
+Workspace channel, and **every** Coworker in the room picks up the
+leaves the deterministic assignment algorithm hands to them.
+
+#### 17.8.1 Y.Map state shape
+
+The Workspace channel adds three reserved Y.Map keys on the shared
+Y.Doc (top-level — peers MAY namespace these under a `task` parent
+in v1):
+
+| Map | Purpose |
+|---|---|
+| `task` | `{ offer: <Task Offer JSON>, status: "running"\|"done", started_at: <ms>, initiator_client_id: <int> }` |
+| `channels` | One entry per channel declared in `offer.graph.channels`. Initial seed value comes from the initiator (typically `document` ← workspace doc text). |
+| `leaf_status` | Per-node status: `{ state: "pending"\|"running"\|"done"\|"failed", clientId, agentId, started_at, completed_at, duration_ms, error? }` |
+
+All three Maps are CRDT-merged like any other Y.js value; concurrent
+writes converge.
+
+#### 17.8.2 Deterministic leaf assignment
+
+Each Coworker independently computes leaf-to-peer assignment from
+the **sorted list of all known Y.js client IDs** in the room (which
+both peers see via Y.js awareness — see §17.2):
+
+```
+fn assign(leaf_id, client_ids):
+  let h = djb2_hash(leaf_id)
+  let sorted = sort_ascending(client_ids)
+  return sorted[ |h| mod len(sorted) ]
+```
+
+Both peers reach the same conclusion with **zero coordination**.
+There is no "claim this leaf" round-trip; collision-free dispatch
+falls out of agreement on the inputs (leaf_id, client_ids).
+
+This generalizes naturally to N > 2 Coworkers — the wire is
+already multi-peer ready (the Workspace + ACP channels can be
+multi-cast over WebRTC mesh in v1).
+
+#### 17.8.3 Lifecycle
+
+```
+INITIATOR                                         BOTH PEERS
+─────────                                         ──────────
+user types prompt → "Decompose & run"
+POST /tasks { prompt }
+Originator returns Task Offer (§6)
+   ↓
+Y.Doc.transact:
+  task.set(offer, status=running, started_at, initiator_client_id)
+  channels.set(initial seed channel(s), e.g. document)
+   ↓ (Y.js syncs)                                 task / channels Map observe fires
+                                                   each peer:
+                                                     for node in offer.graph.nodes:
+                                                       if assign(node.id) == my client_id:
+                                                         if all reads channels populated:
+                                                           if not yet running/done:
+                                                             run agent → write outputs to channels
+                                                             set leaf_status[node.id]=done
+   ↓ (channels updates flow)                      … iteratively, until all nodes done
+                                                   reducer node: assigned by same hash;
+                                                     reads its inputs, computes output,
+                                                     writes terminal channel
+                                                   final-write peer prepends report to
+                                                     workspace doc with §17.5 attribution
+```
+
+No new wire frames are needed — the Workspace channel framing
+(§17.2.1) carries Y.js Map mutations natively.
+
+#### 17.8.4 Reducer semantics
+
+Reducers are §8 Model B (`executor_registered`) — every Coworker
+implementation MUST register the same set of built-in reducers
+listed in §17.8.5. The reducer's `node_name` identifies which
+function runs.
+
+#### 17.8.5 Built-in reducer registry
+
+| node_name | Inputs | Output | Used by |
+|---|---|---|---|
+| `neoprotocol.builtin.zip_and_count` | append-channels A, B | `replace`-channel matrix | `multi-leaf-poc` |
+| `neoprotocol.builtin.markdown_report` | text channels (any) | `replace`-channel markdown | `cowork-poc` cowork_review |
+
+Implementations MAY register additional reducers (Model B
+`executor_registered`) declared in their Capability Statement (§9),
+but the built-ins above MUST be implemented for §17.8 conformance.
+
+#### 17.8.6 Failure handling
+
+If a leaf assigned to peer P fails (status=failed in `leaf_status`),
+peer P MUST set the failure with an `error` string. Other peers
+SHOULD NOT silently re-execute — failure semantics are deferred to
+v1 alongside §13.5 cancellation. Stage 5 PoC simply marks the
+leaf failed and the task stuck.
+
+#### 17.8.7 Why deterministic assignment (vs. claim-and-race)
+
+Considered: a Y.Map "claim" entry where the first peer to write
+`leaf_status[id] = {state: running, clientId: me}` wins.
+
+Rejected: Y.js CRDT means concurrent writes can be reordered after
+the fact; two peers could both see their own claim apply locally
+and start running. By the time the conflict is resolved network-
+side, the leaf has run twice. Hash-based deterministic assignment
+sidesteps this entirely — both peers compute the SAME assignment
+deterministically before doing any work.
 
 ---
 
@@ -1235,4 +1352,5 @@ relay  ─ peer_joined ──► both peers
 | v0.3 draft III | §16 Federated Mode (ACP-over-WebRTC; Standard + Minimal signaling; Virtual Path safety profile); §3 glossary entries; §12 SIG/FED codes; §2 federated-orthogonality note | `7e22473` |
 | v0.3 draft IV | §17 Collaborative Workspace (Coworker role; Workspace channel multiplexed with ACP; first-joiner seed rule; cross-agent permission grant variants Stage-2 spec; attribution metadata); Stage 1 reference impl `examples/cowork-poc/` | `78e1124` |
 | v0.3 draft V | §17.4 Stage-2 reference impl shipped — cross-agent ACP recursion (§17.4.1 shared-`JsonRpcChannel` rule, §17.4.2 from/to peer-agent identity wire fields, §17.4.3 streamed candidate-document update kind). `examples/cowork-poc/cross-agent.js` ~230 LOC. peer.js parameterized for multi-DC mode (`dcLabels: string[]`) | `0be535d` |
-| v0.3 draft VI | §17 Stage-3 local-model backend (transformers.js v3 + WebGPU/wasm). No wire change — local inference is an Executor implementation choice already covered by §8 `runtime_kind`. `examples/cowork-poc/local-model.js` ~135 LOC. Default `onnx-community/Llama-3.2-1B-Instruct` (q4f16 / WebGPU); user-pasteable for Gemma 2/3/4. Status note added to §17 header | this commit |
+| v0.3 draft VI | §17 Stage-3 local-model backend (transformers.js v3 + WebGPU/wasm). No wire change — local inference is an Executor implementation choice already covered by §8 `runtime_kind`. `examples/cowork-poc/local-model.js` ~135 LOC. Default `onnx-community/Llama-3.2-1B-Instruct` (q4f16 / WebGPU); user-pasteable for Gemma 2/3/4. Status note added to §17 header | `1b0d858` |
+| v0.3 draft VII | §17.8 Stage-5 — multi-host fan-out from a Task Offer (the merge of §6/§7 with §16/§17). Three reserved Y.Map keys (`task`, `channels`, `leaf_status`); deterministic hash-based leaf-to-peer assignment from sorted Y.js client IDs (collision-free, zero coordination); built-in reducer registry (`zip_and_count`, `markdown_report`); cowork_review fixture + cowork pattern matcher in stub decomposer. `examples/cowork-poc/task-runner.js` ~290 LOC. Also adds OpenAI BYOK backend (`askOpenAI`) and 4-option agent-mode dropdown (OpenAI default, Anthropic, Local, Mock) | this commit |

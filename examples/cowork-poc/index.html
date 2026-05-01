@@ -99,12 +99,13 @@
       <div class="card stack">
         <div class="row">
           <select id="agent-mode" style="flex:1">
+            <option value="openai">OpenAI — gpt-5.4-mini (BYOK)</option>
             <option value="anthropic">Anthropic — claude-sonnet-4-6 (BYOK)</option>
             <option value="local">Local — Gemma / Llama (WebGPU, in-browser)</option>
             <option value="mock">Mock (offline; for testing)</option>
           </select>
         </div>
-        <input type="password" id="api-key" placeholder="sk-ant-... (sessionStorage only)">
+        <input type="password" id="api-key" placeholder="sk-... (sessionStorage only)">
         <div class="meta">
           API key stays in this browser's <code>sessionStorage</code>. Never sent to the
           Originator, never sent to the peer.
@@ -149,6 +150,26 @@
         <button class="secondary" id="xagent-allow-session">Allow this session</button>
         <button class="danger" id="xagent-deny-once">Deny</button>
         <button class="danger" id="xagent-deny-session">Deny session</button>
+      </div>
+    </div>
+
+    <!-- Stage 5 / SPEC §17.8 — Task Offer fan-out -->
+    <div>
+      <h2>Cowork task (SPEC §17.8 fan-out)</h2>
+      <div class="card stack">
+        <div class="meta">
+          Originator decomposes a NL prompt into a multi-leaf graph;
+          leaves are deterministically assigned to Coworkers in the room
+          and run independently with each peer's chosen agent. Reducer
+          aggregates and prepends a markdown report to the workspace doc.
+        </div>
+        <textarea id="task-prompt" rows="2" placeholder="e.g. code review this document (matches the cowork_review fixture)"></textarea>
+        <div class="row">
+          <button class="primary"   id="btn-run-task" disabled style="flex:1">Decompose &amp; run</button>
+          <button class="secondary" id="btn-reset-task">Reset</button>
+        </div>
+        <div class="meta" id="task-state">No task running.</div>
+        <pre class="diff" id="task-graph" style="display:none;max-height:none"></pre>
       </div>
     </div>
 

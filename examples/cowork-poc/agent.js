@@ -18,6 +18,8 @@
 
 const ANTHROPIC_DEFAULT_MODEL = "claude-sonnet-4-6";
 const ANTHROPIC_ENDPOINT = "https://api.anthropic.com/v1/messages";
+const OPENAI_DEFAULT_MODEL = "gpt-5.4-mini";
+const OPENAI_ENDPOINT = "https://api.openai.com/v1/chat/completions";
 
 const SYSTEM_PROMPT = `You are a coding assistant embedded in a collaborative editor.
 Two humans share the same document. Each human has their own assistant
@@ -70,6 +72,47 @@ export async function askAnthropic({ apiKey, model, prompt, document, signal }) 
   }
   const j = await r.json();
   const text = (j.content || []).filter((c) => c.type === "text").map((c) => c.text).join("\n");
+  let parsed;
+  try { parsed = tryParseJson(text); }
+  catch (e) {
+    throw new Error(`agent returned non-JSON: ${e.message}; raw: ${text.slice(0, 200)}`);
+  }
+  if (typeof parsed.newDocument !== "string") {
+    throw new Error(`agent JSON missing 'newDocument'`);
+  }
+  if (typeof parsed.reasoning !== "string") parsed.reasoning = "(no reasoning provided)";
+  return parsed;
+}
+
+// OpenAI BYOK — chat-completions endpoint. Browser CORS is permitted
+// by OpenAI as long as the key is sent via Authorization: Bearer.
+// Same {reasoning, newDocument} contract as askAnthropic so callers
+// don't branch on backend.
+export async function askOpenAI({ apiKey, model, prompt, document, signal }) {
+  const body = {
+    model: model || OPENAI_DEFAULT_MODEL,
+    max_completion_tokens: 4096,
+    response_format: { type: "json_object" },
+    messages: [
+      { role: "system", content: SYSTEM_PROMPT },
+      { role: "user",   content: `Document:\n\`\`\`\n${document}\n\`\`\`\n\nMy request: ${prompt}` }
+    ]
+  };
+  const r = await fetch(OPENAI_ENDPOINT, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${apiKey}`
+    },
+    body: JSON.stringify(body),
+    signal
+  });
+  if (!r.ok) {
+    const t = await r.text();
+    throw new Error(`OpenAI ${r.status}: ${t.slice(0, 240)}`);
+  }
+  const j = await r.json();
+  const text = j.choices?.[0]?.message?.content || "";
   let parsed;
   try { parsed = tryParseJson(text); }
   catch (e) {
