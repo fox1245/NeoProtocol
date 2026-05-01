@@ -52,8 +52,10 @@ criterion (external users) needs the social path that public release
 unlocks.
 
 Read order:
-- [SPEC.md](SPEC.md) — protocol specification (15 sections + appendix)
+- [SPEC.md](SPEC.md) — protocol specification (16 sections + appendix)
 - [PLAN.md](PLAN.md) — milestone roadmap with status table
+- [docs/federated-mode.md](docs/federated-mode.md) — design + cross-network safety profile for §16
+- [docs/roadmap-collaborative-workspace.md](docs/roadmap-collaborative-workspace.md) — vision document: how Federated Mode evolves into browser-native multi-user multi-agent coding
 - [CHANGELOG.md](CHANGELOG.md) — version history
 - [CONTRIBUTING.md](CONTRIBUTING.md) — sign-off + commit style
 - [conformance/](conformance/) — language-neutral self-cert harness
