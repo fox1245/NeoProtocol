@@ -1,6 +1,6 @@
-# Cowork PoC — Stages 1+2: Living document + cross-agent ACP
+# Cowork PoC — Stages 1+2+3: Living document + cross-agent ACP + local model
 
-Reference implementation for [SPEC §17](../../SPEC.md) Stages 1–2 of
+Reference implementation for [SPEC §17](../../SPEC.md) Stages 1–3 of
 the [Collaborative Workspace roadmap](../../docs/roadmap-collaborative-workspace.md).
 
 ## What it shows
@@ -24,6 +24,17 @@ a `candidate_document` carrying the proposed full document. The
 asker applies it; attribution credits the *remote* peer and agent —
 the wire records who actually authored the bytes even though the
 local user pressed Apply.
+
+**Stage 3**: the agent-mode dropdown gains a third option, **Local —
+Gemma / Llama (WebGPU, in-browser)**. transformers.js v3 + ONNX
+Runtime Web load a small instruct-tuned LLM directly into the
+browser (q4f16 weights + fp16 activations on WebGPU; q4 + fp32 on
+wasm fallback). Combined with Stage 2 cross-agent ACP, both peers
+can run their agents purely locally — no vendor cloud anywhere in
+the loop. The model-ID field accepts any HuggingFace ONNX bundle:
+default is Llama-3.2 1B (~700 MB); paste e.g. `onnx-community/gemma-4-E2B-it`
+if you have it. First load downloads to IndexedDB; subsequent visits
+are instant.
 
 The Originator only signals — it never sees the document, the prompt,
 the agent output, or the attribution. ACP and Y.js traffic both ride
@@ -79,7 +90,8 @@ Originator, never to the peer.
 | `ydoc-channel.js` | Y.js sync + awareness over the Workspace `RTCDataChannel` (sync_step1 / step2 / update + awareness.update frames). ~110 LOC |
 | `workspace.js` | CodeMirror 6 + `yCollab` binding + `applyAgentEdit` (CRDT-friendly minimal-change apply with attribution metadata) |
 | `cross-agent.js` | Stage 2 — ACP recursion. `makeCrossAgentChannel(dc)` returns one `JsonRpcChannel` shared between `startCrossAgentReceiver` (handles inbound prompts with permission gate) and `startCrossAgentSender` (asks peer's agent). ~230 LOC |
-| `agent.js` | BYOK Anthropic Messages API client + offline mock agent (used by both local and peer-side agent invocations) |
+| `agent.js` | BYOK Anthropic Messages API client + offline mock + lazy re-export of `askLocal` from `local-model.js` |
+| `local-model.js` | Stage 3 — transformers.js v3 + ONNX Runtime Web pipeline wrapper. Lazy load with progress, WebGPU detection + wasm fallback, dtype selection for the verified-safe combos (WebGPU→q4f16, wasm→q4), JSON-tolerant output extraction. ~135 LOC |
 
 ## How it relates to Federated Mode (§16)
 
@@ -101,16 +113,16 @@ What's new in Stage 1:
 - First-joiner seed rule (SPEC §17.2.2) — preventing a CRDT
   double-seed race the PoC verification caught.
 
-## What's NOT in Stages 1+2
+## What's NOT in Stages 1+2+3
 
-(Stages 3+ — see roadmap.)
+(Stage 4+ — see roadmap.)
 
 - Real workspace folder via `FileSystemDirectoryHandle`
 - Multi-buffer / file tree
-- Local-model agent (transformers.js + WebGPU)
 - Multi-peer (>2 Coworkers) mesh
 - TURN fallback for symmetric NAT
-- `allow_per_path` grant scope (reserved in §17.4 for Stage 3 when there are multiple Virtual Paths in flight per session)
+- `allow_per_path` grant scope (reserved in §17.4 for the workspace stage when there are multiple Virtual Paths in flight per session)
+- Pre-cached / split-bundle model loading (current Stage 3 lazy-loads on first selection — first-load size is honest but heavy)
 
 ## Known limits
 

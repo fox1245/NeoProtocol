@@ -4,7 +4,7 @@
 import { SignalingPeer } from "../p2p-acp-poc/peer.js";
 import { YDocChannel } from "./ydoc-channel.js";
 import { makeWorkspace } from "./workspace.js";
-import { askAnthropic, askMock } from "./agent.js";
+import { askAnthropic, askMock, askLocal } from "./agent.js";
 import { makeCrossAgentChannel, startCrossAgentReceiver, startCrossAgentSender } from "./cross-agent.js";
 
 const $ = (id) => document.getElementById(id);
@@ -45,6 +45,39 @@ if (savedKey) $("api-key").value = savedKey;
 $("api-key").addEventListener("change", (e) => {
   sessionStorage.setItem("cowork.apiKey", e.target.value);
 });
+
+// Show / hide the local-model-id row based on the agent mode.
+function refreshAgentModeUi() {
+  const mode = $("agent-mode").value;
+  $("local-model-row").style.display = mode === "local" ? "" : "none";
+  $("api-key").style.display = mode === "anthropic" ? "" : "none";
+}
+$("agent-mode").addEventListener("change", refreshAgentModeUi);
+refreshAgentModeUi();
+
+// Per-tab cache for the loaded local-model pipeline. We keep one
+// model loaded at a time; switching model IDs in the UI evicts via
+// transformers.js's own internal cache.
+function makeLocalProgressReporter() {
+  let lastPct = -1;
+  return (info) => {
+    if (!info) return;
+    if (info.status === "progress" && typeof info.progress === "number") {
+      const pct = Math.round(info.progress);
+      if (pct !== lastPct) {
+        lastPct = pct;
+        $("local-model-progress").textContent =
+          `Loading ${info.file || ""}… ${pct}% (${(info.loaded / 1e6).toFixed(1)} / ${(info.total / 1e6).toFixed(1)} MB)`;
+      }
+    } else if (info.status === "ready") {
+      $("local-model-progress").textContent = `Model ready (cached for next session).`;
+    } else if (info.status === "done") {
+      // file done — keep going
+    } else if (info.status === "initiate") {
+      $("local-model-progress").textContent = `Fetching ${info.file}…`;
+    }
+  };
+}
 
 let peer = null;
 let chan = null;            // YDocChannel (workspace)
@@ -193,16 +226,23 @@ function wirePeerEvents(p) {
       // RTCDataChannel makes them race each other for incoming frames
       // (the sender, with no request handlers, would reply
       // "method not found" before the receiver gets a chance).
-      const agentId = $("agent-mode").value;
+      // We re-read agent-mode + api-key on every inbound prompt so
+      // the user can flip backends mid-session without disconnecting.
       const sharedRpc = makeCrossAgentChannel(dc);
+      const liveAgentId = () => $("agent-mode").value;
       xagentReceiver = startCrossAgentReceiver({
         rpc: sharedRpc,
         ourPeerId,
-        ourAgentId: agentId,
+        ourAgentId: liveAgentId(),
         runAgent: async ({ prompt, document }) => {
+          const mode = liveAgentId();
           const apiKey = $("api-key").value.trim();
-          if (agentId === "mock" || (agentId === "anthropic" && !apiKey)) {
+          if (mode === "mock" || (mode === "anthropic" && !apiKey)) {
             return askMock({ prompt, document });
+          }
+          if (mode === "local") {
+            const modelId = $("local-model-id").value.trim() || "onnx-community/Llama-3.2-1B-Instruct";
+            return askLocal({ modelId, prompt, document, onProgress: makeLocalProgressReporter() });
           }
           return askAnthropic({ apiKey, prompt, document });
         },
@@ -214,10 +254,10 @@ function wirePeerEvents(p) {
       xagentSender = startCrossAgentSender({
         rpc: sharedRpc,
         ourPeerId,
-        ourAgentId: agentId,
+        ourAgentId: liveAgentId(),
         onLog: (line) => log(line, "agent")
       });
-      log(`cross-agent ACP ready (agentId=${agentId})`, "sys");
+      log(`cross-agent ACP ready (agentId=${liveAgentId()})`, "sys");
     }
   });
   p.addEventListener("channel-close", () => {
@@ -250,8 +290,13 @@ $("btn-ask").addEventListener("click", async () => {
   const mode = $("agent-mode").value;
   const apiKey = $("api-key").value.trim();
   const askPeer = $("ask-peer").checked;
+  const modelId = $("local-model-id").value.trim();
   if (!askPeer && mode === "anthropic" && !apiKey) {
-    log(`agent: API key required for Anthropic mode (or pick mock)`, "agent");
+    log(`agent: API key required for Anthropic mode (or pick mock / local)`, "agent");
+    return;
+  }
+  if (!askPeer && mode === "local" && !modelId) {
+    log(`agent: local model ID required`, "agent");
     return;
   }
   if (askPeer && !xagentSender) {
@@ -285,9 +330,20 @@ $("btn-ask").addEventListener("click", async () => {
         attributionPeerId:  r.remotePeerId
       };
     } else {
-      result = mode === "mock"
-        ? await askMock({ prompt, document })
-        : await askAnthropic({ apiKey, prompt, document, signal: ctrl.signal });
+      if (mode === "mock") {
+        result = await askMock({ prompt, document });
+      } else if (mode === "local") {
+        log(`local model: loading ${modelId}…`, "agent");
+        result = await askLocal({
+          modelId,
+          prompt,
+          document,
+          onProgress: makeLocalProgressReporter(),
+          signal: ctrl.signal
+        });
+      } else {
+        result = await askAnthropic({ apiKey, prompt, document, signal: ctrl.signal });
+      }
     }
     log(`${tag} → ${result.reasoning.slice(0, 100)}`, "agent");
     pendingSuggestion = { ...result, basisDocument: document, fromPeer: askPeer };

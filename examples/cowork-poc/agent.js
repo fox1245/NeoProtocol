@@ -82,6 +82,15 @@ export async function askAnthropic({ apiKey, model, prompt, document, signal }) 
   return parsed;
 }
 
+// Local-model backend re-export — single entry point per agent file
+// keeps app.js's "switch by mode" pattern simple. Lazy-imports the
+// transformers.js dependency only when the local mode is actually used,
+// so BYOK / mock users never pay the parse cost.
+export async function askLocal(opts) {
+  const mod = await import("./local-model.js");
+  return mod.askLocal(opts);
+}
+
 // A deterministic mock so the demo can run without an API key. Useful
 // for offline testing + the Playwright smoke. Mirrors the Federated
 // Mode PoC's mock-summarizer pattern.

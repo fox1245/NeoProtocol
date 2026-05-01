@@ -156,7 +156,59 @@ cooperated. No central agent service was involved."
 
 ---
 
-### Stage 3 — "Real workspace" *(conditional, ~2–4 weeks)*
+### Stage 3 — "Local-model option" *(committed, ~1–2 weeks)*
+
+> **Note: order swapped from the original roadmap.** Originally Stage 3
+> was "Real workspace" and Stage 4 was "Local model." The user
+> redecided 2026-05-01 to do local-model first, because the demo
+> narrative *"no cloud at all, your compute all the way down"* is
+> stronger as the headline before adding workspace files.
+
+**Demo goal.** Same Stage 1+2 setup, but the agent dropdown gains a
+third option: **Local — Gemma (WebGPU/wasm)**. On first selection,
+the model lazy-loads (transformers.js v3 + onnxruntime-web; q4f16
+weights + fp16 activations on WebGPU; q8 on wasm fallback). Once
+loaded, subsequent prompts run on-device with zero network. Combined
+with Stage 2 cross-agent ACP, *both* peers can run their agents
+purely locally and still cooperate over P2P WebRTC.
+
+**What it proves.**
+1. The "your compute all the way down" axis of the NeoProtocol thesis
+   is not just rhetorical — there is no vendor cloud anywhere in the
+   loop, including for inference.
+2. Same `{reasoning, newDocument}` agent contract as BYOK / Mock; the
+   Stage 1/2 wire is unchanged. Local model is an Executor
+   implementation detail, not a protocol concept.
+3. WebGPU q4f16 is fast enough for code-edit suggestions on a 1–2B
+   model. (BYOK stays as the heavy-lifting tier.)
+
+**Deliverables.**
+- `examples/cowork-poc/local-model.js` — transformers.js pipeline
+  wrapper with lazy load, progress callback, WebGPU detection +
+  wasm fallback, JSON-tolerant output parser
+- `agent.js` gains `askLocal({ prompt, document, modelId, onProgress })`
+- UI: `Local — Gemma (WebGPU/wasm)` option, model-ID input, load
+  progress bar, inference status indicator
+- Documentation of model size + first-load UX honestly (the 700 MB+
+  initial download is not hidden)
+- Honest README note: small local models are not Cursor-tier; pick
+  tasks the local tier handles well (rename, JSDoc, simple refactor)
+
+**Out of scope (Stage 3 only).** Real workspace folder. Multi-buffer.
+Multi-peer mesh.
+
+**Risk.** Local-model coding quality is below frontier APIs. Mitigation:
+demo task selection (refactor, JSDoc, rename) where 1–2B models
+already perform reasonably. BYOK remains the recommended option for
+non-trivial work.
+
+**Demo sentence.** "Now offline. The whole stack — agent inference,
+document state, peer protocol — runs in two browsers. No vendor
+cloud anywhere."
+
+---
+
+### Stage 4 — "Real workspace" *(conditional, ~2–4 weeks; was Stage 3)*
 
 **Demo goal.** Same room, but each user opens a real folder using
 the browser File System Access API. File tree, multi-buffer (Monaco
@@ -192,39 +244,6 @@ download).
 No extension. The agent only sees what we let it. Edits are P2P."
 
 ---
-
-### Stage 4 — "Local model option" *(conditional, ~2–3 weeks)*
-
-**Demo goal.** Same demo as Stage 3, but the BYOK toggle in each
-agent panel can be flipped to "local model": transformers.js v3 +
-WebGPU + a small coding model (Gemma 2B / Qwen 0.5B-coder /
-Phi-3-mini). Demo shows a non-trivial workflow that completes purely
-on local compute.
-
-**What it proves.**
-1. The "no extension, no install, your compute" thesis can run all
-   the way down to the model weights — there is no vendor cloud
-   anywhere in the loop.
-2. NeoProtocol's runtime-kind discriminator (`local_onnx`,
-   `byok_api`) covers the local-model case from v0.1.
-
-**Deliverables.**
-- transformers.js + WebGPU integration in the agent panel
-- Honest documentation of the quality gap vs Cursor (Gemma 2B is
-  not Sonnet); position as a "good enough for explain / refactor /
-  test-stub" tier, with BYOK as the heavy-lifting tier
-- Pre-cached model bundle to avoid 50–500 MB first-visit downloads
-  ruining the demo
-
-**Risk.** Local-model coding quality is not at parity with frontier
-APIs. The demo has to pick tasks the local tier can do well
-(rename refactor, doc-comment generation, test-stub creation, code
-explain) rather than tasks where it visibly fails (architectural
-suggestions, complex bug hunts).
-
-**Demo sentence.** "Now offline. Both browsers are running a 2B
-parameter model in WebGPU. Watch the same workflow happen with no
-network at all."
 
 ---
 
@@ -336,9 +355,43 @@ These are explicitly **not** ambitions of NeoProtocol Workspace:
 |---|---|---|---|
 | 1 — Living document with two agents | **✅ shipped** (`examples/cowork-poc/`, SPEC §17) | — | done |
 | 2 — Cross-agent ACP | **✅ shipped** (`examples/cowork-poc/cross-agent.js`, SPEC §17.4) | — | done |
-| 3 — Real workspace | conditional on Stage 2 demo response | — | TBD |
-| 4 — Local model option | conditional on Stage 3 | — | TBD |
+| 3 — Local-model option (was Stage 4 — order swapped) | **✅ shipped** (`examples/cowork-poc/local-model.js`, 3-option agent dropdown) | — | done |
+| 4 — Real workspace (was Stage 3) | conditional on Stage 3 | — | TBD |
 | 5 — Editor surface upgrade | conditional on Stages 1–4 traction | — | TBD |
+
+**Stage 3 — what we learned (2026-05-01):**
+
+- **Wire didn't change.** Local model is purely an Executor
+  implementation detail. The §16 ACP framing, the §17.2 Workspace
+  channel, the §17.4 cross-agent ACP, and the §17.5 attribution
+  metadata all carry over without modification. `agentId: "local"`
+  shows up in attribution metadata; receiving peers don't need any
+  protocol-level awareness of how the bytes were produced.
+- **transformers.js v3 ESM via importmap** — same trap as Stage 1's
+  yjs/CodeMirror multi-instance: pin `@huggingface/transformers` to
+  one resolved version, otherwise transitive deps from
+  onnxruntime-web duplicate. Already pinned in
+  `examples/cowork-poc/index.html`'s importmap.
+- **WebGPU + q4f16 = safe**, q8 + WebGPU = silent garbage (NeoGraph
+  memory: this trap was discovered on `transformers.js v3` for
+  classification models too). `local-model.js`'s `detectDevice()` +
+  dtype selection encodes the safe combos: WebGPU→q4f16, wasm→q4.
+- **Quality framing**: 1–2B local models do JSDoc / rename /
+  test-stub / explain reliably; they do not architect. The PoC's
+  agent-mode selector lists "Local" alongside "BYOK" and "Mock" so
+  users self-select for the right tier.
+- **Pre-existing inference backends** (`/root/Coding/TransformerCPP`
+  and `/root/Coding/neoclaw`) have a Gemma 4 E2B-it q4 ONNX bundle
+  on disk — but they're C++ / native, not browser. The PoC reuses
+  the **model file format** (split decoder + embed_tokens, q4) which
+  transformers.js loads natively; the inference engine itself is
+  ONNX Runtime Web, not the C++ backends. Documented in `local-model.js`.
+- **First-load UX is heavy** (~700 MB for the 1B default; ~1.4 GB for
+  Gemma 2; ~3.4 GB for Gemma 4 E2B-it). IndexedDB caching makes
+  later visits instant. The model-ID input lets users paste any
+  ONNX-community model or self-hosted bundle, which keeps the demo
+  honest about size without locking the default to the heaviest
+  option.
 
 **Stage 2 — what we learned (from the PoC verification run, 2026-05-01):**
 

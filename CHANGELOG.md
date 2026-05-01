@@ -10,6 +10,32 @@ tracks the demo / server / spec evolution.
 
 ### Added
 
+- **Collaborative Workspace — Stage 3** (SPEC §17 status, no wire
+  change): local-model agent backend. The agent-mode dropdown now
+  has three options — Anthropic (BYOK), **Local — Gemma / Llama
+  (WebGPU, in-browser)**, and Mock. The local backend is
+  transformers.js v3 + ONNX Runtime Web (q4f16 weights + fp16
+  activations on WebGPU; q4 + fp32 on wasm fallback) with a
+  user-pasteable model ID and a datalist of suggestions ranging
+  from Llama-3.2 1B (~700 MB) up to Gemma 4 E2B-it (~3.4 GB).
+  Reuses the same `{reasoning, newDocument}` agent contract as the
+  BYOK + mock backends, so cross-agent ACP (§17.4) and attribution
+  (§17.5) work unchanged when both peers run local models —
+  end-to-end "no vendor cloud anywhere".
+  - `examples/cowork-poc/local-model.js` (~135 LOC)
+  - `agent.js` lazy-imports `local-model.js` only when local mode is
+    selected (BYOK / mock users don't pay the parse cost)
+  - UI: model-ID input + datalist suggestions + load-progress meta
+  - Documentation honest about first-load size (~700 MB for the 1B
+    default; IndexedDB caches for subsequent visits)
+  - Encoded the verified-safe transformers.js v3 dtype combos
+    (WebGPU→q4f16, wasm→q4) per the documented "q8+WebGPU silent
+    garbage" trap
+  - **Roadmap order swapped** (was: Stage 3 = real workspace,
+    Stage 4 = local model). Local-model now first because the
+    "no cloud at all" demo narrative lands harder before adding
+    workspace files. Real workspace is now Stage 4.
+
 - **Collaborative Workspace — Stage 2** (SPEC §17.4): cross-agent
   ACP. User A's agent can ask User B's agent for help — the request
   travels P2P over a second multiplexed `RTCDataChannel`

@@ -954,12 +954,14 @@ either side ─ leave / close
 
 ## 17. Collaborative Workspace
 
-> **Status: v0.3 draft, Stages 1+2 reference implementation shipped.**
+> **Status: v0.3 draft, Stages 1+2+3 reference implementation shipped.**
 > Stage 1 covers §§17.1–17.2, §17.5 attribution, and the Stage 1
 > portion of §17.6 lifecycle. Stage 2 covers §17.4 (cross-agent
 > permission grants + ACP recursion shape + streamed candidate
-> document). Stage 3 onwards (§17.3 real-file mapping) is
-> conditional. See
+> document). Stage 3 adds a local-model agent backend
+> (transformers.js v3 + WebGPU/wasm) — purely an Executor
+> implementation detail; the protocol wire does not change.
+> Stage 4 onwards (§17.3 real-file mapping) is conditional. See
 > [`docs/roadmap-collaborative-workspace.md`](docs/roadmap-collaborative-workspace.md)
 > for the staged plan and decision criteria.
 
@@ -1232,4 +1234,5 @@ relay  ─ peer_joined ──► both peers
 | v0.3 draft II | §3 glossary, §4 transport, §5 expanded sequence diagrams, §12 error code taxonomy, §13 reliability | `11bb7de` |
 | v0.3 draft III | §16 Federated Mode (ACP-over-WebRTC; Standard + Minimal signaling; Virtual Path safety profile); §3 glossary entries; §12 SIG/FED codes; §2 federated-orthogonality note | `7e22473` |
 | v0.3 draft IV | §17 Collaborative Workspace (Coworker role; Workspace channel multiplexed with ACP; first-joiner seed rule; cross-agent permission grant variants Stage-2 spec; attribution metadata); Stage 1 reference impl `examples/cowork-poc/` | `78e1124` |
-| v0.3 draft V | §17.4 Stage-2 reference impl shipped — cross-agent ACP recursion (§17.4.1 shared-`JsonRpcChannel` rule, §17.4.2 from/to peer-agent identity wire fields, §17.4.3 streamed candidate-document update kind). `examples/cowork-poc/cross-agent.js` ~230 LOC. peer.js parameterized for multi-DC mode (`dcLabels: string[]`) | this commit |
+| v0.3 draft V | §17.4 Stage-2 reference impl shipped — cross-agent ACP recursion (§17.4.1 shared-`JsonRpcChannel` rule, §17.4.2 from/to peer-agent identity wire fields, §17.4.3 streamed candidate-document update kind). `examples/cowork-poc/cross-agent.js` ~230 LOC. peer.js parameterized for multi-DC mode (`dcLabels: string[]`) | `0be535d` |
+| v0.3 draft VI | §17 Stage-3 local-model backend (transformers.js v3 + WebGPU/wasm). No wire change — local inference is an Executor implementation choice already covered by §8 `runtime_kind`. `examples/cowork-poc/local-model.js` ~135 LOC. Default `onnx-community/Llama-3.2-1B-Instruct` (q4f16 / WebGPU); user-pasteable for Gemma 2/3/4. Status note added to §17 header | this commit |

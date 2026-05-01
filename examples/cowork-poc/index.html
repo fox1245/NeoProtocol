@@ -99,7 +99,8 @@
       <div class="card stack">
         <div class="row">
           <select id="agent-mode" style="flex:1">
-            <option value="anthropic">Anthropic — claude-sonnet-4-6</option>
+            <option value="anthropic">Anthropic — claude-sonnet-4-6 (BYOK)</option>
+            <option value="local">Local — Gemma / Llama (WebGPU, in-browser)</option>
             <option value="mock">Mock (offline; for testing)</option>
           </select>
         </div>
@@ -108,6 +109,23 @@
           API key stays in this browser's <code>sessionStorage</code>. Never sent to the
           Originator, never sent to the peer.
         </div>
+
+        <!-- Local-model row (visible only when agent-mode=local) -->
+        <div id="local-model-row" class="stack" style="display:none">
+          <label style="font-size:11px;color:var(--muted);">Local model ID (HuggingFace ONNX bundle):</label>
+          <input type="text" id="local-model-id" value="onnx-community/Llama-3.2-1B-Instruct" list="local-model-suggestions" placeholder="onnx-community/...">
+          <datalist id="local-model-suggestions">
+            <option value="onnx-community/Llama-3.2-1B-Instruct">Llama-3.2 1B (~700 MB q4f16)</option>
+            <option value="onnx-community/Phi-3.5-mini-instruct-onnx-web">Phi-3.5 mini (~2 GB q4f16)</option>
+            <option value="onnx-community/gemma-2-2b-it">Gemma 2 2B (~1.4 GB)</option>
+            <option value="onnx-community/gemma-4-E2B-it">Gemma 4 E2B-it (~3.4 GB) — if available</option>
+          </datalist>
+          <div class="meta" id="local-model-progress">
+            First selection downloads weights (cached in IndexedDB; later visits load instantly).
+            WebGPU + q4f16 by default; falls back to wasm + q4 if WebGPU unavailable.
+          </div>
+        </div>
+
         <textarea id="agent-prompt" rows="2" placeholder="e.g. Add JSDoc comments to each function"></textarea>
         <div class="row">
           <label style="display:flex;align-items:center;gap:6px;font-size:12px;">
@@ -176,7 +194,8 @@
     "@codemirror/language":         "https://esm.sh/@codemirror/language@6.10.1?deps=@codemirror/state@6.4.1,@codemirror/view@6.27.0",
     "@codemirror/lang-javascript":  "https://esm.sh/@codemirror/lang-javascript@6.2.2?deps=@codemirror/state@6.4.1,@codemirror/view@6.27.0,@codemirror/language@6.10.1",
     "@codemirror/autocomplete":     "https://esm.sh/@codemirror/autocomplete@6.16.0?deps=@codemirror/state@6.4.1,@codemirror/view@6.27.0,@codemirror/language@6.10.1",
-    "@codemirror/search":           "https://esm.sh/@codemirror/search@6.5.6?deps=@codemirror/state@6.4.1,@codemirror/view@6.27.0"
+    "@codemirror/search":           "https://esm.sh/@codemirror/search@6.5.6?deps=@codemirror/state@6.4.1,@codemirror/view@6.27.0",
+    "@huggingface/transformers":    "https://esm.sh/@huggingface/transformers@3.5.1"
   }
 }
 </script>
