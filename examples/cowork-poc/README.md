@@ -3,6 +3,11 @@
 Reference implementation for [SPEC §17](../../SPEC.md) Stages 1–3 + 5 of
 the [Collaborative Workspace roadmap](../../docs/roadmap-collaborative-workspace.md).
 
+> **Operator-facing UI walkthrough**: every button, field, and panel in
+> the demo is documented in [USAGE.md](./USAGE.md) (English) /
+> [USAGE.ko.md](./USAGE.ko.md) (한국어). This README covers the design
+> story; USAGE covers how to actually drive the UI.
+
 ## What it shows
 
 Two browsers open the same URL, join a room, and share a single
